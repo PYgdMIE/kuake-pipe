@@ -55,6 +55,60 @@ class AutoDLClient:
         })
         self.timeout = timeout
 
+    # ── Default Docker images per chip (PyTorch latest) ─────────────────
+    DEFAULT_IMAGE_NVIDIA = (
+        "hub.kce.ksyun.com/autodl-image/torch:"
+        "cuda12.8-cudnn-devel-ubuntu22.04-py312-torch2.8.0"
+    )
+    DEFAULT_IMAGE_CPU = (
+        "hub.kce.ksyun.com/autodl-image/miniconda3:"
+        "py311-ubuntu22.04"
+    )
+
+    def create_payg_instance(
+        self,
+        machine_id: str,
+        req_gpu_amount: int = 1,
+        image: Optional[str] = None,
+        chip_corp: str = "nvidia",
+    ) -> dict:
+        """POST /api/v1/order/instance/create/payg — create a pay-as-you-go instance.
+        Returns the response data (instance details on success).
+
+        WARNING: This actually creates a billed instance. Use only when sure.
+        Full body schema may include more fields — fill in as discovered."""
+        if image is None:
+            image = self.DEFAULT_IMAGE_CPU if chip_corp == "cpu" else self.DEFAULT_IMAGE_NVIDIA
+        body = {
+            "instance_info": {
+                "machine_id": machine_id,
+                "charge_type": "payg",
+                "req_gpu_amount": req_gpu_amount,
+                "image": image,
+                "private_image_uuid": "",
+                "reproduction_uuid": "",
+                "cg_application_uuid": "",
+                "cg_application_info": {"app_name": "", "current_version": ""},
+                "expand_data_disk": 0,
+                "system_disk_change_size": 0,
+                "coupon_id_list": [],
+                "duration": 1,
+                "num": 1,
+            },
+        }
+        try:
+            r = self.s.post(
+                f"{AUTODL_BASE}/api/v1/order/instance/create/payg",
+                json=body, timeout=self.timeout,
+            )
+        except requests.exceptions.RequestException as e:
+            raise NetworkError(f"AutoDL create instance failed: {e}") from e
+        r.raise_for_status()
+        j = r.json()
+        if j.get("code") not in ("Success", "OK", "success"):
+            raise NetworkError(f"AutoDL create instance error: {j}")
+        return j.get("data", {})
+
     def list_available(
         self,
         gpu_type_names: Optional[List[str]] = None,

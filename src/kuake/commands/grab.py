@@ -91,10 +91,24 @@ def run(
             console.print()
             if dry_run:
                 ok("dry-run 模式 — 未创建实例。去 https://www.autodl.com/market/list 手动抢")
+                ok("(或加 --auto-create 自动创建第一台)")
                 return
             else:
-                warn("--auto-create 暂未实现 (需要先抓 instance/create API)")
-                return
+                target = matches[0]
+                ok(f"自动创建实例: {target.region_name}/{target.machine_alias} "
+                   f"{target.gpu_name} ×{min_idle_gpu}")
+                try:
+                    result = client.create_payg_instance(
+                        machine_id=target.machine_id,
+                        req_gpu_amount=min_idle_gpu,
+                        chip_corp=target.chip_corp,
+                    )
+                    ok(f"创建成功: {result}")
+                    return
+                except Exception as e:
+                    warn(f"创建失败,继续轮询: {e}")
+                    time.sleep(poll_seconds)
+                    continue
         else:
             console.print(f"[dim]poll #{it}: 暂无匹配 (next in {poll_seconds}s)[/dim]",
                           end="\r")

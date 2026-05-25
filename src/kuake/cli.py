@@ -69,6 +69,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="轮询间隔秒(默认 5)")
     p_grab.add_argument("--max-iter", type=int, default=0,
                         help="最多轮询次数,0=无限(默认)")
+    p_grab.add_argument("--auto-create", action="store_true",
+                        help="找到匹配立刻创建实例(会真的扣费!默认 dry-run)")
 
     return parser
 
@@ -153,7 +155,7 @@ def dispatch(args):
             min_idle_gpu=args.min_idle,
             poll_seconds=args.poll,
             max_iterations=args.max_iter,
-            dry_run=True,
+            dry_run=not args.auto_create,
         )
     else:
         raise ValueError(f"Unknown command: {cmd}")
