@@ -2,7 +2,7 @@
 
 > 本地数据 → 夸克网盘 → AutoDL 服务器 全自动中转,顺带抢卡。零硬编码、凭据自动抓取、过期自动重登。
 
-[![Tests](https://github.com/pymie/kuake-pipe/actions/workflows/test.yml/badge.svg)](https://github.com/pymie/kuake-pipe/actions/workflows/test.yml)
+[![Tests](https://github.com/PYgdMIE/kuake-pipe/actions/workflows/test.yml/badge.svg)](https://github.com/PYgdMIE/kuake-pipe/actions/workflows/test.yml)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)
@@ -226,7 +226,7 @@ KUAKE_HOME=~/.kuake-dev  kuake init
 ## 开发
 
 ```bash
-git clone https://github.com/pymie/kuake-pipe
+git clone https://github.com/PYgdMIE/kuake-pipe
 cd kuake-pipe
 pip install -e ".[dev]"
 pytest -v
@@ -241,6 +241,31 @@ DOM-依赖的部分(scraper 命中 AutoDL/夸克页面)用 [`docs/MANUAL_TEST.md
 AutoDL 或夸克页面改版,scraper 会失效。修复点集中在 [`src/kuake/browser/selectors.py`](src/kuake/browser/selectors.py)。每个 `SelectorSet` 有多个 fallback 策略,加一条新的策略就能恢复。
 
 欢迎 PR 添加 fallback。详见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+
+---
+
+## Debug 完整记录
+
+要把整个命令链路记下来给开发者诊断:
+
+```bash
+# Win
+$env:KUAKE_DEBUG_LOG = "$env:USERPROFILE\kuake-trace.log"
+kuake init
+# 然后把 kuake-trace.log 发给开发者
+
+# Mac/Linux
+KUAKE_DEBUG_LOG=~/kuake-trace.log kuake init
+```
+
+文件里会有:
+- 运行环境(版本/Python/OS/argv)
+- 每个 stage 的开始/完成时间
+- 每个 panel API 请求的 URL + body + 响应码 + 响应 snippet
+- 异常完整 traceback
+- 每条 console 输出对应的结构化时间戳
+
+报 issue 时附这个文件能让 selector 失效、auth 异常、上传卡死等问题秒级定位。
 
 ---
 

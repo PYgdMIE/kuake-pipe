@@ -59,15 +59,35 @@ def transfer(title: str, total: Optional[int] = None) -> Iterator[Callable]:
 
 def info(msg: str):
     console.print(f"[cyan]·[/cyan] {msg}")
+    try:
+        from kuake.debug_log import log_event
+        log_event("info", msg)
+    except Exception:
+        pass
 
 
 def ok(msg: str):
     console.print(f"[green]✓[/green] {msg}")
+    try:
+        from kuake.debug_log import log_event
+        log_event("ok", msg)
+    except Exception:
+        pass
 
 
 def warn(msg: str):
     console.print(f"[yellow]![/yellow] {msg}")
+    try:
+        from kuake.debug_log import log_event
+        log_event("warn", msg)
+    except Exception:
+        pass
 
 
 def err(msg: str):
     console.print(f"[red]✗[/red] {msg}")
+    try:
+        from kuake.debug_log import log_event
+        log_event("err", msg)
+    except Exception:
+        pass

@@ -61,7 +61,7 @@ Open an issue first to discuss scope. The project explicitly stays away from:
 ## Development setup
 
 ```bash
-git clone https://github.com/pymie/kuake-pipe
+git clone https://github.com/PYgdMIE/kuake-pipe
 cd kuake-pipe
 python -m venv .venv
 source .venv/bin/activate    # or .venv\Scripts\Activate.ps1

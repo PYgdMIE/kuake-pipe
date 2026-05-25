@@ -202,7 +202,7 @@ pip uninstall kuake-pipe
 
 ## 还是不通?
 
-到 [GitHub Issues](https://github.com/pymie/kuake-pipe/issues) 提 issue,附:
+到 [GitHub Issues](https://github.com/PYgdMIE/kuake-pipe/issues) 提 issue,附:
 
 1. `kuake doctor` 完整输出
 2. `KUAKE_DEBUG=1 kuake <command>` 的 traceback

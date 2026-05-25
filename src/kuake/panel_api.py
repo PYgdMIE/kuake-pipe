@@ -66,9 +66,18 @@ class PanelClient:
 
     def _request(self, method: str, ep: str, **kwargs) -> dict:
         try:
+            from kuake.debug_log import dbg
+        except Exception:
+            dbg = lambda *_a, **_k: None  # noqa: E731
+        # Log request (body truncated)
+        body_repr = repr(kwargs.get("json", "") or kwargs.get("params", ""))[:200]
+        dbg(f"REQ {method} {self.base}{ep} body={body_repr}", "kuake.panel_api")
+        try:
             r = self.s.request(method, f"{self.base}{ep}", timeout=self.timeout, **kwargs)
         except requests.exceptions.RequestException as e:
+            dbg(f"REQ_ERR {method} {ep}: {e}", "kuake.panel_api")
             raise NetworkError(f"Network error calling {ep}: {e}") from e
+        dbg(f"RES {r.status_code} {r.text[:300]!r}", "kuake.panel_api")
 
         if is_expired_response(r):
             if self._refresh_callback and not self._refresh_attempted:
