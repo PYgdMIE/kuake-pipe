@@ -12,7 +12,8 @@ from kuake.config import config_paths
 @contextmanager
 def launch_browser(headless: bool = False, storage_state: Optional[Path] = None) -> Iterator:
     """Launch Chromium and yield (browser_context, playwright_instance).
-    Caller closes context. Loads storage_state if provided and exists."""
+    Caller closes context. Loads storage_state if provided and exists.
+    Grants clipboard read/write so the scraper can pull SSH info from copy icons."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
@@ -20,6 +21,10 @@ def launch_browser(headless: bool = False, storage_state: Optional[Path] = None)
         if storage_state and Path(storage_state).exists():
             ctx_kwargs["storage_state"] = str(storage_state)
         context = browser.new_context(**ctx_kwargs)
+        try:
+            context.grant_permissions(["clipboard-read", "clipboard-write"])
+        except Exception:
+            pass
         try:
             yield context, p
         finally:

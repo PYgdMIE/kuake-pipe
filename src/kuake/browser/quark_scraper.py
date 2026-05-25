@@ -11,7 +11,7 @@ from kuake.progress import info, ok
 
 def wait_login(page, timeout_seconds: int = 180) -> None:
     info("打开夸克网盘,请在浏览器里扫码登录...")
-    page.goto(QUARK_LOGIN_URL)
+    page.goto(QUARK_LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
     loc = try_locators(page, QUARK_LOGGED_IN, timeout=timeout_seconds * 1000)
     if loc is None:
         raise ScraperFailed("Quark login timeout — no logged-in indicator")
@@ -20,7 +20,7 @@ def wait_login(page, timeout_seconds: int = 180) -> None:
 
 def list_backup_folders(page) -> list[str]:
     """Return display names under /我的备份/."""
-    page.goto(QUARK_BACKUP_URL)
+    page.goto(QUARK_BACKUP_URL, wait_until="domcontentloaded", timeout=60000)
     try:
         page.wait_for_load_state("networkidle", timeout=15000)
     except Exception:

@@ -14,7 +14,7 @@ from kuake.progress import info, ok, warn
 
 def list_full(page) -> list[dict]:
     """Return all instances with index, label, and best-effort status string."""
-    page.goto(AUTODL_CONSOLE_URL)
+    page.goto(AUTODL_CONSOLE_URL, wait_until="domcontentloaded", timeout=60000)
     try:
         page.wait_for_load_state("networkidle", timeout=15000)
     except Exception:

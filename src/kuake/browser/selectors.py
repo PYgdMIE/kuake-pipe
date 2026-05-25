@@ -28,6 +28,10 @@ AUTODL_LOGGED_IN = SelectorSet(
 AUTODL_INSTANCE_ROW = SelectorSet(
     "autodl_instance_row",
     (
+        ".instance-table .el-table__row",
+        "tr.el-table__row",
+        ".el-table__row",
+        ".instance-table tbody tr",
         "[class*='instance-item']",
         "[class*='InstanceItem']",
         "tr[data-instance-id]",

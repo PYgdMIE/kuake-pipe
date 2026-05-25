@@ -27,7 +27,9 @@ class InstanceInfo:
 def wait_login(page, timeout_seconds: int = 180) -> None:
     """Navigate to login page and wait until logged-in indicator appears."""
     info("打开 AutoDL 登录页,请在浏览器里完成扫码/SMS 登录...")
-    page.goto(AUTODL_LOGIN_URL)
+    # wait_until="domcontentloaded" instead of default "load" to avoid 30s+
+    # blocking on analytics/tracker subresources on slow networks
+    page.goto(AUTODL_LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
     loc = try_locators(page, AUTODL_LOGGED_IN, timeout=timeout_seconds * 1000)
     if loc is None:
         raise ScraperFailed(
@@ -47,7 +49,7 @@ def parse_ssh_command(cmd: str) -> tuple[str, int, str]:
 
 def list_instances(page) -> list[dict]:
     """Return raw instance metadata. Just identifiers + display text."""
-    page.goto(AUTODL_CONSOLE_URL)
+    page.goto(AUTODL_CONSOLE_URL, wait_until="domcontentloaded", timeout=60000)
     try:
         page.wait_for_load_state("networkidle", timeout=15000)
     except Exception:
@@ -70,30 +72,71 @@ def list_instances(page) -> list[dict]:
 
 
 def extract_instance_details(page, row_index: int, row_selector: str) -> InstanceInfo:
-    """Click into instance row, scrape SSH command + password + AutoPanel URL."""
+    """Extract SSH command + password + AutoPanel URL from the AutoDL instance row.
+
+    The row is an Element UI <tr.el-table__row> with 10 <td> cells:
+      cell[0]: 实例ID/名称/区域
+      cell[1]: 状态
+      ...
+      cell[7]: 登录指令 (ssh masked + password masked, with 2 copy icons)
+      cell[8]: 操作 (JupyterLab / AutoPanel / 监控 / 自定义服务 buttons)
+
+    Strategy:
+      1. Click ssh copy icon → read clipboard → ssh command
+      2. Click password copy icon → read clipboard → password
+      3. Click AutoPanel button → intercept new-page event → capture URL
+    """
     row = page.locator(row_selector).nth(row_index)
-    row.click()
     try:
-        page.wait_for_load_state("networkidle", timeout=10000)
+        row.scroll_into_view_if_needed(timeout=3000)
     except Exception:
         pass
 
-    ssh_loc = try_locators(page, AUTODL_INSTANCE_SSH, timeout=8000)
-    if ssh_loc is None:
-        raise ScraperFailed("Cannot locate SSH command in instance detail")
-    ssh_text = ssh_loc.inner_text().strip()
+    # SSH + password via clipboard
+    cell_login = row.locator("td").nth(7)
+    icons = cell_login.locator(".icon-fuzhi").all()
+    if len(icons) < 2:
+        raise ScraperFailed(
+            f"Expected 2 copy icons in cell[7], found {len(icons)} — "
+            "DOM may have changed (looking for .icon-fuzhi)"
+        )
+
+    try:
+        icons[0].click()
+        page.wait_for_timeout(600)
+        ssh_text = page.evaluate("() => navigator.clipboard.readText()")
+    except Exception as e:
+        raise ScraperFailed(f"Could not read SSH from clipboard: {e}") from e
+
+    try:
+        icons[1].click()
+        page.wait_for_timeout(600)
+        password = page.evaluate("() => navigator.clipboard.readText()")
+    except Exception as e:
+        raise ScraperFailed(f"Could not read password from clipboard: {e}") from e
+
     host, port, user = parse_ssh_command(ssh_text)
 
-    pwd_loc = try_locators(page, AUTODL_INSTANCE_PASSWORD, timeout=3000)
-    password = pwd_loc.inner_text().strip() if pwd_loc else ""
-
+    # AutoPanel URL via new-page interception (button opens new tab)
     autopanel_url: Optional[str] = None
-    panel_loc = try_locators(page, AUTODL_AUTOPANEL_LINK, timeout=3000)
-    if panel_loc:
+    try:
+        cell_actions = row.locator("td").nth(8)
+        panel_btn = cell_actions.locator("button:has-text('AutoPanel')").first
+        ctx = page.context
+        with ctx.expect_page(timeout=10000) as new_page_info:
+            panel_btn.click()
+        new_page = new_page_info.value
         try:
-            autopanel_url = panel_loc.get_attribute("href")
+            new_page.wait_for_load_state("domcontentloaded", timeout=8000)
         except Exception:
             pass
+        autopanel_url = new_page.url
+        try:
+            new_page.close()
+        except Exception:
+            pass
+    except Exception:
+        pass  # AutoPanel URL is optional; if it fails we ask user to paste
 
     return InstanceInfo(
         label=ssh_text[:80],
