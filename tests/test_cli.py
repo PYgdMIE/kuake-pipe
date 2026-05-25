@@ -78,3 +78,55 @@ def test_task_name_validator():
     assert not TASK_NAME_RE.match("with/slash")
     assert not TASK_NAME_RE.match("with.dot")
     assert not TASK_NAME_RE.match("")
+
+
+def test_parser_instances():
+    parser = build_parser()
+    args = parser.parse_args(["instances"])
+    assert args.cmd == "instances"
+
+
+def test_parser_start_default():
+    parser = build_parser()
+    args = parser.parse_args(["start"])
+    assert args.cmd == "start"
+    assert args.target == "default"
+
+
+def test_parser_start_with_number():
+    parser = build_parser()
+    args = parser.parse_args(["start", "2"])
+    assert args.target == "2"
+
+
+def test_parser_stop_with_yes():
+    parser = build_parser()
+    args = parser.parse_args(["stop", "1", "-y"])
+    assert args.cmd == "stop"
+    assert args.target == "1"
+    assert args.yes is True
+
+
+def test_resolve_target_default(monkeypatch):
+    from kuake.commands.start import _resolve_target
+    rows = [{"label": "a"}, {"label": "b"}]
+    assert _resolve_target("default", rows) == 0
+
+
+def test_resolve_target_valid_index():
+    from kuake.commands.start import _resolve_target
+    rows = [{"label": "a"}, {"label": "b"}, {"label": "c"}]
+    assert _resolve_target("2", rows) == 1
+    assert _resolve_target("3", rows) == 2
+
+
+def test_resolve_target_invalid_raises():
+    from kuake.commands.start import _resolve_target
+    from kuake.errors import UserInputError
+    rows = [{"label": "a"}]
+    with pytest.raises(UserInputError):
+        _resolve_target("abc", rows)
+    with pytest.raises(UserInputError):
+        _resolve_target("5", rows)
+    with pytest.raises(UserInputError):
+        _resolve_target("0", rows)

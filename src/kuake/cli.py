@@ -43,6 +43,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_reset = sub.add_parser("reset", help="清空 ~/.kuake/")
     p_reset.add_argument("--keep-credentials", action="store_true")
 
+    # Instance lifecycle (v1.1)
+    sub.add_parser("instances", help="列出 AutoDL 实例及状态")
+
+    p_start = sub.add_parser("start", help="开机 AutoDL 实例")
+    p_start.add_argument("target", nargs="?", default="default",
+                         help="实例编号(见 `kuake instances`),默认 1")
+
+    p_stop = sub.add_parser("stop", help="关机 AutoDL 实例")
+    p_stop.add_argument("target", nargs="?", default="default")
+    p_stop.add_argument("-y", "--yes", action="store_true", help="跳过确认")
+
     return parser
 
 
@@ -107,6 +118,15 @@ def dispatch(args):
     elif cmd == "reset":
         from kuake.commands import reset
         reset.run(keep_credentials=args.keep_credentials)
+    elif cmd == "instances":
+        from kuake.commands import instances
+        instances.run()
+    elif cmd == "start":
+        from kuake.commands import start
+        start.run(args.target)
+    elif cmd == "stop":
+        from kuake.commands import stop
+        stop.run(args.target, yes=args.yes)
     else:
         raise ValueError(f"Unknown command: {cmd}")
 

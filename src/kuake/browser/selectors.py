@@ -62,6 +62,45 @@ AUTODL_AUTOPANEL_LINK = SelectorSet(
     ),
 )
 
+AUTODL_POWER_ON_BUTTON = SelectorSet(
+    "autodl_power_on",
+    (
+        "button:has-text('开机')",
+        "[class*='power-on']",
+        "[data-action='power-on']",
+        "text=开机",
+    ),
+)
+
+AUTODL_POWER_OFF_BUTTON = SelectorSet(
+    "autodl_power_off",
+    (
+        "button:has-text('关机')",
+        "[class*='power-off']",
+        "[data-action='power-off']",
+        "text=关机",
+    ),
+)
+
+AUTODL_INSTANCE_STATUS = SelectorSet(
+    "autodl_instance_status",
+    (
+        "[class*='status']",
+        "[class*='Status']",
+        "[data-testid='status']",
+    ),
+)
+
+AUTODL_CONFIRM_BUTTON = SelectorSet(
+    "autodl_confirm",
+    (
+        "button:has-text('确认')",
+        "button:has-text('确定')",
+        "[class*='confirm']",
+        "[role='button']:has-text('确认')",
+    ),
+)
+
 # --- Quark ---
 QUARK_LOGIN_URL = "https://pan.quark.cn"
 QUARK_BACKUP_URL = "https://pan.quark.cn/list#/list/backup"

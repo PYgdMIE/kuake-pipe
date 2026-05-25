@@ -62,6 +62,11 @@ kuake ls                              # 远端任务列表
 kuake rm <task>                       # 删除远端 + 本地 zip
 kuake reset                           # 清空 ~/.kuake/
 kuake reset --keep-credentials        #   仅清 config 不清登录态
+
+# AutoDL 实例管理 (v1.1+)
+kuake instances                       # 列出实例及状态
+kuake start [N]                       # 开机第 N 号实例 (默认 1)
+kuake stop  [N] [-y]                  # 关机第 N 号实例
 ```
 
 ---
