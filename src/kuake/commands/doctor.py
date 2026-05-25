@@ -72,6 +72,18 @@ def run() -> None:
         )
         panel.workdir()
         ok("[6/12] AutoPanel token 有效")
+        # also verify Quark netdisk binding
+        try:
+            disks = panel.netdisk_list()
+            if disks:
+                names = ", ".join(d.get("type", "?") for d in disks)
+                ok(f"        Quark 网盘已绑定 ({names})")
+            else:
+                warn("        AutoPanel 上未绑定任何网盘 — 跑 `kuake init` 重新绑定")
+                warnings += 1
+        except Exception as e:
+            warn(f"        无法查询网盘列表: {e}")
+            warnings += 1
     except Exception as e:
         warn(f"[6/12] AutoPanel token 可能过期: {e}")
         warnings += 1

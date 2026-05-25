@@ -1,4 +1,8 @@
-"""Force re-fetch panel auth using saved storage_state (headless if possible)."""
+"""Force re-acquire AutoPanel session_token via sign_in API.
+
+Pure HTTP (no browser) — relies on saved standalone_password_sha1.
+If sha1 is missing or sign_in fails, raises SessionDead so user runs `kuake init`.
+"""
 from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timedelta
@@ -10,6 +14,7 @@ from kuake.config import (
 from kuake.concurrency import FileLock, LockBusy
 from kuake.errors import ConcurrencyLock, SessionDead
 from kuake.progress import info, ok
+from kuake.proxy import requests_proxies
 
 
 def run(headless: bool = True) -> None:
@@ -23,27 +28,35 @@ def run(headless: bool = True) -> None:
         cfg = read_config()
         cred = read_credentials()
 
-        if not cfg.panel_base:
-            raise SessionDead("No panel URL configured")
+        if not cfg.panel_base or not cred.panel_autodl_token:
+            raise SessionDead("No AutoPanel URL or JupyterLab token configured")
+        if not cred.standalone_password_sha1:
+            raise SessionDead(
+                "standalone_password_sha1 missing — please run `kuake init` again"
+            )
 
-        from kuake.browser.session import launch_browser, save_storage_state
-        from kuake.browser.panel_scraper import capture_auth
-
-        info(f"启动 {'headless' if headless else 'headed'} 浏览器,使用已保存的登录态...")
+        from kuake.panel_api import PanelClient
+        info("用保存的密码哈希重新登录 AutoPanel...")
+        panel = PanelClient(
+            base=cfg.panel_base,
+            authorization="null",
+            autodl_token=cred.panel_autodl_token,
+            fs_id=cfg.fs_id,
+            proxies=requests_proxies(),
+        )
         try:
-            with launch_browser(headless=headless, storage_state=paths.storage_state) as (ctx, _p):
-                page = ctx.new_page()
-                auth = capture_auth(page, cfg.panel_base)
-                save_storage_state(ctx, paths.storage_state)
+            new_token = panel.sign_in(cred.standalone_password_sha1)
         except Exception as e:
-            raise SessionDead(f"Refresh failed (session may be dead): {e}") from e
+            raise SessionDead(f"AutoPanel sign_in failed: {e}") from e
 
         new_cred = Credentials(
             ssh_password=cred.ssh_password,
             ssh_key_path=cred.ssh_key_path,
-            panel_authorization=auth.authorization,
-            panel_autodl_token=auth.autodl_token,
+            panel_authorization=new_token,
+            panel_autodl_token=cred.panel_autodl_token,
             expires_estimate=(datetime.now() + timedelta(days=30)).isoformat(timespec="seconds"),
+            standalone_password_sha1=cred.standalone_password_sha1,
+            quark_cookie=cred.quark_cookie,
         )
         write_credentials(new_cred)
 
@@ -51,4 +64,4 @@ def run(headless: bool = True) -> None:
             **{**asdict(cfg), "last_refresh": datetime.now().isoformat(timespec="seconds")}
         )
         write_config(new_cfg)
-        ok("Panel token 已刷新")
+        ok(f"Panel session 已刷新 (token len={len(new_token)})")

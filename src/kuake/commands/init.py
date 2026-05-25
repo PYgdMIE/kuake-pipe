@@ -85,11 +85,30 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
 
             # 4. list & pick instance
             rows = autodl_scraper.list_instances(page)
+            running_indices = [i for i, r in enumerate(rows) if r.get("running")]
             console.print("\n[bold]检测到 AutoDL 实例:[/bold]")
             for i, r in enumerate(rows, 1):
-                console.print(f"  [{i}] {r['label'][:80]}")
-            idx = _prompt_index("选择实例", len(rows))
+                name = r.get("name", "")[:30]
+                gpu = r.get("gpu", "")[:20]
+                status = r.get("status", "未知")
+                color = "green" if "运行中" in status else "yellow"
+                console.print(
+                    f"  [{i}] [bold]{name}[/bold]  "
+                    f"[dim]{gpu}[/dim]  "
+                    f"[{color}]{status}[/{color}]"
+                )
+            if not running_indices:
+                raise UserInputError(
+                    "所有实例都已关机 — 请到 AutoDL 控制台开机后重跑 `kuake init`"
+                )
+            default_idx = running_indices[0] + 1  # 1-based
+            console.print(f"[dim]提示:默认选第一个运行中的实例 [{default_idx}][/dim]")
+            idx = _prompt_index("选择实例", len(rows), default=default_idx)
             chosen = rows[idx]
+            if not chosen.get("running"):
+                raise UserInputError(
+                    f"实例 {chosen.get('name')} 当前是 {chosen.get('status')},无法抓取 SSH 信息;请改选运行中的"
+                )
 
             # 5. extract SSH + AutoPanel URL
             instance = autodl_scraper.extract_instance_details(

@@ -25,6 +25,23 @@ class InstanceInfo:
     autopanel_url: Optional[str]
 
 
+def _parse_row_meta(row_text: str) -> dict:
+    """Extract name / gpu / status from the multi-line row text."""
+    lines = [s.strip() for s in row_text.splitlines() if s.strip()]
+    meta = {"name": "", "gpu": "", "status": "未知"}
+    if lines:
+        meta["name"] = lines[0][:40]  # e.g. "西北B区 / 034机"
+    for ln in lines:
+        if any(k in ln for k in ("运行中", "已关机", "关机中", "开机中")):
+            meta["status"] = ln.strip()[:6]
+            break
+    for ln in lines:
+        if "卡" in ln and ("*" in ln or "x" in ln.lower()):
+            meta["gpu"] = ln.strip()[:30]
+            break
+    return meta
+
+
 def wait_login(page, timeout_seconds: int = 180) -> None:
     """Navigate to login page and wait until logged-in indicator appears.
     Auto-switches to WeChat QR tab if the page defaults to password mode."""
@@ -92,8 +109,13 @@ def list_instances(page) -> list[dict]:
             if count > 0:
                 for i in range(count):
                     loc = page.locator(strategy).nth(i)
-                    text = loc.inner_text()[:200]
-                    rows.append({"index": i, "selector": strategy, "label": text})
+                    text = loc.inner_text()[:300]
+                    meta = _parse_row_meta(text)
+                    rows.append({
+                        "index": i, "selector": strategy, "label": text,
+                        "name": meta["name"], "gpu": meta["gpu"], "status": meta["status"],
+                        "running": "运行中" in meta["status"],
+                    })
                 break
         except Exception:
             continue
