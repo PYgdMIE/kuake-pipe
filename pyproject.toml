@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kuake-pipe"
+version = "0.1.0"
+description = "Automated local -> Quark cloud -> AutoDL server data transfer pipeline"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "kuake-pipe contributors"}]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "paramiko>=3.0",
+    "requests>=2.28",
+    "rich>=13.0",
+    "playwright>=1.40",
+    "tomli-w>=1.0",
+    "tomli>=2.0; python_version<'3.11'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "requests-mock>=1.10",
+]
+
+[project.scripts]
+kuake = "kuake.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yourorg/kuake-pipe"
+Issues = "https://github.com/yourorg/kuake-pipe/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kuake"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --strict-markers"

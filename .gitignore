@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+venv/
+.venv/
+.env
+*.zip
+
+# Legacy reference, not part of new package
+_legacy/
+
+# Local config (never commit)
+.kuake/
