@@ -25,8 +25,21 @@ def list_backup_folders(page) -> list[str]:
         page.wait_for_load_state("networkidle", timeout=15000)
     except Exception:
         pass
+    # Give SPA time to render the folder list
+    page.wait_for_timeout(3000)
+
     names: list[str] = []
-    for strategy in QUARK_BACKUP_FOLDER.strategies:
+    # Try harder: look for text starting with "来自" (typical PC backup folder prefix)
+    extra_strategies = [
+        "text=/^来自/",                      # "来自:xxx 电脑备份"
+        "[class*='file-list-item']",
+        "[class*='list-item']",
+        "[class*='item-name']",
+        "[class*='ant-list-item']",
+        ".file-name",
+    ]
+    all_strategies = list(QUARK_BACKUP_FOLDER.strategies) + extra_strategies
+    for strategy in all_strategies:
         try:
             count = page.locator(strategy).count()
             if count > 0:
@@ -34,9 +47,17 @@ def list_backup_folders(page) -> list[str]:
                     text = page.locator(strategy).nth(i).inner_text().split("\n")[0].strip()
                     if text and text not in names:
                         names.append(text)
-                break
+                if names:
+                    break
         except Exception:
             continue
     if not names:
-        raise ScraperFailed("No /我的备份/ subfolders detected")
+        # Dump some context to help debugging on the caller side
+        try:
+            body = page.locator("body").inner_text(timeout=2000)[:400]
+            raise ScraperFailed(
+                f"No /我的备份/ subfolders detected. URL={page.url} BODY_SAMPLE={body!r}"
+            )
+        except Exception:
+            raise ScraperFailed("No /我的备份/ subfolders detected (and could not read body)")
     return names

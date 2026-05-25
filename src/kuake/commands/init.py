@@ -36,9 +36,13 @@ def _sha1(s: str) -> str:
 
 def _prompt_index(prompt: str, n: int, default: int = 1) -> int:
     """Ask user for 1-based index in [1, n]. Returns 0-based.
-    Loops on invalid input; never raises."""
+    Loops on invalid input; falls back to default on stdin EOF."""
     while True:
-        raw = Prompt.ask(prompt, default=str(default))
+        try:
+            raw = Prompt.ask(prompt, default=str(default))
+        except (EOFError, KeyboardInterrupt):
+            warn(f"stdin 关闭,用默认值 {default}")
+            return default - 1
         try:
             v = int(raw)
         except ValueError:
@@ -47,6 +51,15 @@ def _prompt_index(prompt: str, n: int, default: int = 1) -> int:
         if 1 <= v <= n:
             return v - 1
         warn(f"超出范围 1-{n}")
+
+
+def _safe_prompt(prompt: str, default: str = "") -> str:
+    """Prompt.ask with EOF fallback to default."""
+    try:
+        return Prompt.ask(prompt, default=default)
+    except (EOFError, KeyboardInterrupt):
+        warn(f"stdin 关闭,用默认值 {default!r}")
+        return default
 
 
 def run(no_smoke: bool = False, ssh_key: bool = False,
@@ -82,6 +95,12 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
 
             # 3. AutoDL login
             autodl_scraper.wait_login(page)
+            # save storage_state ASAP after AutoDL login so future runs
+            # don't need a re-scan even if init aborts later
+            try:
+                save_storage_state(ctx, paths.storage_state)
+            except Exception:
+                pass
 
             # 4. list & pick instance
             rows = autodl_scraper.list_instances(page)
@@ -157,36 +176,49 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
             panel_base, jupyter_token = _parse_jupyter_token(instance.autopanel_url)
             ok(f"  AutoPanel base: {panel_base}")
 
-            info("\n[在浏览器里] 请打开 AutoPanel 并输入独立密码登录...")
-            info("[在浏览器里] 这是你在 AutoDL 控制台「自定义服务密码」里设的密码")
+            info("\n[在浏览器里] 打开 AutoPanel,如果显示登录页请输入独立密码...")
+            info("[在浏览器里] 如果已经直接进 AutoPanel 主页,则无需任何操作")
 
             captured = {"pwd_sha1": "", "token": ""}
 
-            def on_signin_request(request):
-                if "/autopanel/v1/sign_in" not in request.url or request.method != "POST":
+            def on_request(request):
+                """Capture either sign_in body (to save sha1) OR any authenticated request."""
+                url = request.url
+                if "/autopanel/v1/" not in url:
                     return
-                try:
-                    body = request.post_data
-                    if body and not captured["pwd_sha1"]:
-                        import json as _json
-                        j = _json.loads(body)
-                        if isinstance(j, dict) and j.get("password"):
-                            captured["pwd_sha1"] = j["password"]
-                except Exception:
-                    pass
+                # 1. sign_in POST contains the password sha1
+                if url.endswith("/sign_in") and request.method == "POST":
+                    try:
+                        body = request.post_data
+                        if body:
+                            import json as _json
+                            j = _json.loads(body)
+                            if isinstance(j, dict) and j.get("password"):
+                                captured["pwd_sha1"] = j["password"]
+                    except Exception:
+                        pass
+                    return
+                # 2. any other request with non-null Authorization gives us the token
+                if captured["token"]:
+                    return
+                h = {k.lower(): v for k, v in request.headers.items()}
+                auth_val = h.get("authorization", "")
+                if auth_val and auth_val.lower() != "null" and len(auth_val) > 10:
+                    captured["token"] = auth_val
 
-            def on_signin_response(response):
+            def on_response(response):
+                """If sign_in succeeded, capture token from response body."""
                 if "/autopanel/v1/sign_in" not in response.url:
                     return
                 try:
                     body = response.json()
-                    if body.get("code") == "success" and body.get("data"):
+                    if body.get("code") in ("success", "Success") and body.get("data"):
                         captured["token"] = body["data"]
                 except Exception:
                     pass
 
-            page.on("request", on_signin_request)
-            page.on("response", on_signin_response)
+            page.on("request", on_request)
+            page.on("response", on_response)
             page.goto(instance.autopanel_url,
                       wait_until="domcontentloaded", timeout=30000)
 
@@ -195,18 +227,20 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
             while _time.time() < deadline and not captured["token"]:
                 page.wait_for_timeout(2000)
             try:
-                page.remove_listener("request", on_signin_request)
-                page.remove_listener("response", on_signin_response)
+                page.remove_listener("request", on_request)
+                page.remove_listener("response", on_response)
             except Exception:
                 pass
 
             if not captured["token"]:
                 raise UserInputError(
-                    "180s 内未捕获 AutoPanel 登录成功响应,请确认密码是否正确"
+                    "180s 内未捕获 AutoPanel 鉴权 token,请确认你已经登录 AutoPanel"
                 )
-            pwd_sha1 = captured["pwd_sha1"]
+            pwd_sha1 = captured["pwd_sha1"]  # may be empty if already logged in
             session_token = captured["token"]
-            ok(f"  AutoPanel 登录成功(session_token len={len(session_token)})")
+            ok(f"  AutoPanel token captured (len={len(session_token)})")
+            if not pwd_sha1:
+                warn("  未抓到 sign_in 密码哈希 — refresh 将无法自动重登,届时需重跑 init")
 
             from kuake.panel_api import PanelClient
             from kuake.proxy import requests_proxies
@@ -220,6 +254,11 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
 
             # 8. Quark login (visible browser, may auto-pass via saved session)
             quark_scraper.wait_login(page)
+            # save again to capture Quark cookies
+            try:
+                save_storage_state(ctx, paths.storage_state)
+            except Exception:
+                pass
 
             # 8.1 extract Quark cookie from browser and bind to AutoPanel
             from kuake.browser.quark_cookie import extract_quark_cookie_header
@@ -243,20 +282,43 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
                 if not after:
                     raise ScraperFailed("绑定后 netdisk_list 仍为空")
 
-            folders = quark_scraper.list_backup_folders(page)
-            console.print("\n[bold]检测到夸克备份目录:[/bold]")
-            for i, n in enumerate(folders, 1):
-                console.print(f"  [{i}] {n}")
-            qidx = _prompt_index("选择 PC 备份目录", len(folders))
-            pc_folder = folders[qidx]
-            subname = Prompt.ask(
+            # Use panel API to list /我的备份/ contents (more reliable than web scrape)
+            folders: list[str] = []
+            try:
+                beifen = panel.find_by_path("/我的备份")
+                if beifen:
+                    items = panel.list_dir(beifen["file_id"])
+                    folders = [it["name"] for it in items if it.get("is_dir")]
+                    if folders:
+                        ok(f"  从 AutoPanel 查到 /我的备份/ 下有 {len(folders)} 个目录")
+            except Exception as e:
+                warn(f"  AutoPanel 查 /我的备份/ 失败 {e},回退到网页抓取")
+                try:
+                    folders = quark_scraper.list_backup_folders(page)
+                except Exception as e2:
+                    warn(f"  网页抓取也失败: {e2}")
+                    folders = []
+
+            if folders:
+                console.print("\n[bold]检测到夸克备份目录:[/bold]")
+                for i, n in enumerate(folders, 1):
+                    console.print(f"  [{i}] {n}")
+                qidx = _prompt_index("选择 PC 备份目录", len(folders))
+                pc_folder = folders[qidx]
+            else:
+                console.print("\n[yellow]无法自动列出夸克备份目录(可能 DOM 改版或你账号下没设备备份)[/yellow]")
+                console.print("[dim]去夸克网盘看「/我的备份/」下有什么子目录,例如「来自:xxx 电脑备份」[/dim]")
+                pc_folder = _safe_prompt(
+                    "请手输夸克备份目录的全名(不含/我的备份/前缀)"
+                )
+            subname = _safe_prompt(
                 "备份子目录名 (本地夸克客户端备份的目录名)", default="UPLOAD"
             )
             cloud_backup_path = f"/我的备份/{pc_folder}/{subname}"
 
             # 9. local backup dir
             default_local = str(Path.home() / "Downloads" / subname)
-            local_backup_dir = Prompt.ask(
+            local_backup_dir = _safe_prompt(
                 "本地夸克客户端备份目录", default=default_local
             )
             Path(local_backup_dir).mkdir(parents=True, exist_ok=True)
