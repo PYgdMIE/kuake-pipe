@@ -9,7 +9,7 @@ from kuake.config import (
 )
 from kuake.concurrency import FileLock, LockBusy
 from kuake.errors import (
-    ConcurrencyLock, UserInputError, CloudTimeout, AuthExpired,
+    ConcurrencyLock, UserInputError, CloudTimeout, AuthExpired, SessionDead,
 )
 from kuake.pack import make_zip, md5sum
 from kuake.panel_api import PanelClient
@@ -117,8 +117,8 @@ def _stages_2_to_4(
                 if cur >= expected_size:
                     break
                 info(f"  云端可见但未传完: {cur:,}/{expected_size:,}")
-        except AuthExpired:
-            raise
+        except (AuthExpired, SessionDead):
+            raise  # propagate so user gets the right hint
         except Exception as e:
             info(f"  轮询出错 (将重试): {e}")
         time.sleep(8)

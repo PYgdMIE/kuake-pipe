@@ -73,7 +73,12 @@ class PanelClient:
         if is_expired_response(r):
             if self._refresh_callback and not self._refresh_attempted:
                 self._refresh_attempted = True
-                new_client = self._refresh_callback()
+                try:
+                    new_client = self._refresh_callback()
+                except Exception:
+                    # let SessionDead / other exceptions propagate as-is — the
+                    # caller's hint will then be correct (run kuake init)
+                    raise
                 self._set_headers(
                     new_client.s.headers["Authorization"],
                     new_client.s.headers["AutodlAutoPanelToken"],
