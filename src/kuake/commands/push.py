@@ -76,7 +76,8 @@ def _build_panel(cfg: Config, cred: Credentials) -> PanelClient:
     """Build a PanelClient with auto-refresh hook wired."""
     def refresh_cb():
         from kuake.commands import refresh as refresh_cmd
-        refresh_cmd.run(headless=True)
+        # push already holds the lock — refresh must not try to re-acquire
+        refresh_cmd.run(headless=True, _hold_lock=False)
         new_cred = read_credentials()
         return PanelClient(
             base=cfg.panel_base,

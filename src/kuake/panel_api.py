@@ -20,10 +20,14 @@ def is_expired_response(resp) -> bool:
     except (ValueError, requests.exceptions.JSONDecodeError):
         return False
     code = j.get("code", "")
-    if code in ("success", "ok"):
+    if code in ("success", "ok", "Success", "OK"):
         return False
     code_str = str(code).lower()
-    if "expired" in code_str or "unauthorized" in code_str:
+    if any(k in code_str for k in
+           ("expired", "unauthorized", "authfail", "auth_fail", "noauth")):
+        return True
+    msg = str(j.get("msg", "")).lower()
+    if "独立密码" in msg or "请重新登录" in msg or "登录已失效" in msg:
         return True
     return False
 
