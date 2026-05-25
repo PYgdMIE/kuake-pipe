@@ -8,7 +8,8 @@ from kuake.browser.selectors import (
     AUTODL_LOGIN_URL, AUTODL_CONSOLE_URL,
     AUTODL_LOGGED_IN, AUTODL_INSTANCE_ROW,
     AUTODL_INSTANCE_SSH, AUTODL_INSTANCE_PASSWORD,
-    AUTODL_AUTOPANEL_LINK, AUTODL_QR_TAB, try_locators,
+    AUTODL_AUTOPANEL_LINK, AUTODL_QR_TAB,
+    AUTODL_WECHAT_FAST_LOGIN, try_locators,
 )
 from kuake.errors import ScraperFailed
 from kuake.progress import info, ok
@@ -42,13 +43,24 @@ def wait_login(page, timeout_seconds: int = 180) -> None:
         try:
             qr_tab.click()
             info("已自动切换到微信扫码模式")
-            page.wait_for_timeout(800)
+            page.wait_for_timeout(1500)
         except Exception:
             pass
     else:
         info("未找到扫码标签,按当前页面提示登录(密码或手机号)")
 
-    info("请在浏览器里完成登录(扫码/密码/SMS 任意方式)...")
+    # On /wx-login there's also a "微信快捷登录" button that opens the larger
+    # open.weixin.qq.com QR page — click it for a cleaner scan UX.
+    fast = try_locators(page, AUTODL_WECHAT_FAST_LOGIN, timeout=2000)
+    if fast is not None:
+        try:
+            fast.click()
+            info("已跳转微信官方大 QR 页")
+            page.wait_for_timeout(1500)
+        except Exception:
+            pass
+
+    info("请扫码登录(浏览器右上角的二维码)...")
     loc = try_locators(page, AUTODL_LOGGED_IN, timeout=timeout_seconds * 1000)
     if loc is None:
         raise ScraperFailed(
@@ -111,13 +123,29 @@ def extract_instance_details(page, row_index: int, row_selector: str) -> Instanc
     except Exception:
         pass
 
+    # Detect stopped/booting instances: they show no SSH info, no AutoPanel button.
+    try:
+        full_text = row.inner_text(timeout=2000)
+        if "已关机" in full_text or "关机中" in full_text:
+            raise ScraperFailed(
+                "该实例已关机 — 请先到 AutoDL 控制台开机,或选另一个运行中(运行中)的实例"
+            )
+        if "开机中" in full_text:
+            raise ScraperFailed(
+                "该实例正在开机中 — 请等 1-2 分钟开机完成后重跑 `kuake init`"
+            )
+    except ScraperFailed:
+        raise
+    except Exception:
+        pass
+
     # SSH + password via clipboard
     cell_login = row.locator("td").nth(7)
     icons = cell_login.locator(".icon-fuzhi").all()
     if len(icons) < 2:
         raise ScraperFailed(
             f"Expected 2 copy icons in cell[7], found {len(icons)} — "
-            "DOM may have changed (looking for .icon-fuzhi)"
+            "可能实例未运行,或 AutoDL DOM 改版了"
         )
 
     try:

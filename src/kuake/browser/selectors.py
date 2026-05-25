@@ -37,6 +37,17 @@ AUTODL_QR_TAB = SelectorSet(
     ),
 )
 
+# Once on /wx-login the page shows a small in-page QR plus a "微信快捷登录" button
+# that redirects to open.weixin.qq.com (a bigger, cleaner QR page). Click it.
+AUTODL_WECHAT_FAST_LOGIN = SelectorSet(
+    "autodl_wechat_fast_login",
+    (
+        "text=微信快捷登录",
+        "button:has-text('微信快捷登录')",
+        "[class*='wechat-fast']",
+    ),
+)
+
 AUTODL_INSTANCE_ROW = SelectorSet(
     "autodl_instance_row",
     (

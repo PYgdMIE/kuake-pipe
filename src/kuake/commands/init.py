@@ -130,32 +130,74 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
             else:
                 ssh_password = instance.ssh_password
 
-            # 7. AutoPanel auth — sign_in with standalone password (no more F12)
+            # 7. AutoPanel auth — open in browser, user types standalone password,
+            #    we intercept the /sign_in POST body (contains SHA1) and response (token)
             if not instance.autopanel_url:
                 instance_url = Prompt.ask("未自动检测到 AutoPanel URL,请粘贴:")
                 instance.autopanel_url = instance_url
             panel_base, jupyter_token = _parse_jupyter_token(instance.autopanel_url)
             ok(f"  AutoPanel base: {panel_base}")
 
-            console.print("\n[bold]AutoPanel 独立密码登录[/bold]")
-            console.print("[dim]这是你在 AutoDL 控制台「自定义服务」里设的密码（旧文件 ~/.quark/autopanel_pwd.txt 里那个）[/dim]")
-            standalone_pwd = Prompt.ask("请输入独立密码（明文）", password=True)
-            pwd_sha1 = _sha1(standalone_pwd)
+            info("\n[在浏览器里] 请打开 AutoPanel 并输入独立密码登录...")
+            info("[在浏览器里] 这是你在 AutoDL 控制台「自定义服务密码」里设的密码")
+
+            captured = {"pwd_sha1": "", "token": ""}
+
+            def on_signin_request(request):
+                if "/autopanel/v1/sign_in" not in request.url or request.method != "POST":
+                    return
+                try:
+                    body = request.post_data
+                    if body and not captured["pwd_sha1"]:
+                        import json as _json
+                        j = _json.loads(body)
+                        if isinstance(j, dict) and j.get("password"):
+                            captured["pwd_sha1"] = j["password"]
+                except Exception:
+                    pass
+
+            def on_signin_response(response):
+                if "/autopanel/v1/sign_in" not in response.url:
+                    return
+                try:
+                    body = response.json()
+                    if body.get("code") == "success" and body.get("data"):
+                        captured["token"] = body["data"]
+                except Exception:
+                    pass
+
+            page.on("request", on_signin_request)
+            page.on("response", on_signin_response)
+            page.goto(instance.autopanel_url,
+                      wait_until="domcontentloaded", timeout=30000)
+
+            import time as _time
+            deadline = _time.time() + 180
+            while _time.time() < deadline and not captured["token"]:
+                page.wait_for_timeout(2000)
+            try:
+                page.remove_listener("request", on_signin_request)
+                page.remove_listener("response", on_signin_response)
+            except Exception:
+                pass
+
+            if not captured["token"]:
+                raise UserInputError(
+                    "180s 内未捕获 AutoPanel 登录成功响应,请确认密码是否正确"
+                )
+            pwd_sha1 = captured["pwd_sha1"]
+            session_token = captured["token"]
+            ok(f"  AutoPanel 登录成功(session_token len={len(session_token)})")
 
             from kuake.panel_api import PanelClient
             from kuake.proxy import requests_proxies
             panel = PanelClient(
                 base=panel_base,
-                authorization="null",
+                authorization=session_token,
                 autodl_token=jupyter_token,
                 fs_id="quark1",
                 proxies=requests_proxies(),
             )
-            try:
-                session_token = panel.sign_in(pwd_sha1)
-                ok(f"  AutoPanel 登录成功(session_token len={len(session_token)})")
-            except Exception as e:
-                raise UserInputError(f"AutoPanel 登录失败,可能独立密码错: {e}")
 
             # 8. Quark login (visible browser, may auto-pass via saved session)
             quark_scraper.wait_login(page)
