@@ -56,6 +56,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_stop.add_argument("target", nargs="?", default="default")
     p_stop.add_argument("-y", "--yes", action="store_true", help="跳过确认")
 
+    p_grab = sub.add_parser("grab", help="轮询 AutoDL 市场,抢空闲机器")
+    p_grab.add_argument("--gpu", action="append", default=[],
+                        help="目标 GPU 型号(可多次,如 --gpu 'RTX 5090' --gpu 'RTX 4090')")
+    p_grab.add_argument("--region", action="append", default=[],
+                        help="目标区域 sign(可多次,如 --region west-B)")
+    p_grab.add_argument("--cpu-ok", action="store_true",
+                        help="也接受 CPU 实例")
+    p_grab.add_argument("--min-idle", type=int, default=1,
+                        help="至少多少张空闲 GPU 才算匹配(默认 1)")
+    p_grab.add_argument("--poll", type=int, default=5,
+                        help="轮询间隔秒(默认 5)")
+    p_grab.add_argument("--max-iter", type=int, default=0,
+                        help="最多轮询次数,0=无限(默认)")
+
     return parser
 
 
@@ -130,6 +144,17 @@ def dispatch(args):
     elif cmd == "stop":
         from kuake.commands import stop
         stop.run(args.target, yes=args.yes)
+    elif cmd == "grab":
+        from kuake.commands import grab
+        grab.run(
+            gpu_types=args.gpu or None,
+            regions=args.region or None,
+            cpu_ok=args.cpu_ok,
+            min_idle_gpu=args.min_idle,
+            poll_seconds=args.poll,
+            max_iterations=args.max_iter,
+            dry_run=True,
+        )
     else:
         raise ValueError(f"Unknown command: {cmd}")
 
