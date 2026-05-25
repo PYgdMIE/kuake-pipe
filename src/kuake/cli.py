@@ -62,10 +62,11 @@ def main(argv=None) -> int:
         dispatch(args)
         return 0
     except KuakeError as e:
+        from rich.markup import escape
         err(i18n.t(e.code))
         console.print(f"[yellow]提示:[/yellow] {i18n.t(e.hint_key)}")
         if str(e):
-            console.print(f"[dim]详情: {e}[/dim]")
+            console.print(f"[dim]详情: {escape(str(e))}[/dim]")
         if os.environ.get("KUAKE_DEBUG"):
             import traceback; traceback.print_exc()
         return e.exit_code
