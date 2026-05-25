@@ -6,10 +6,58 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Pending verification
-- Real-account E2E pass against current AutoDL + Quark DOM (see `docs/MANUAL_TEST.md`)
-- PyPI publishing
-- GitHub Actions CI activation after first push to remote
+### Roadmap
+- Multi-profile native support (currently via `KUAKE_HOME`)
+- Smoke test cloud cleanup (discover Quark delete endpoint)
+- macOS verification on physical hardware
+- Optional: direct Quark cloud upload (bypass PC client)
+- PyPI publishing automation via GitHub Actions
+
+---
+
+## [0.3.0] — 2026-05-25
+
+This release rewrites the AutoPanel + Quark integration based on the **new auth model**
+(verified against AutoPanel v6.16.0 in May 2026) and adds the GPU **抢卡** command.
+
+### Added
+
+- **`kuake grab`** — poll AutoDL market for available GPU/CPU machines
+  - Filter by GPU type (`--gpu "RTX 5090"`), region, CPU-OK
+  - Dry-run by default; `--auto-create` actually buys
+- **AutoPanel sign_in chain** — POST `/autopanel/v1/sign_in` with SHA1 of standalone password
+- **Quark auto-binding** — POST `/autopanel/v1/netdisk/oauth/quark` with user's Quark Cookie
+- **WeChat-QR auto-redirect** — `kuake init` auto-clicks "微信扫码登录" then "微信快捷登录" to land on the larger `open.weixin.qq.com` QR page
+- **`--use-system-chrome`** — launch Playwright with user's actual Chrome profile (Chrome must be closed)
+- **EOF-safe prompts** — `_safe_prompt` / `_prompt_index` no longer crash on closed stdin
+- **Quark backup folder via panel API** — lists `/我的备份/` subdirs through AutoPanel HTTP API (more reliable than scraping the web UI)
+- **Status-aware instance display** — `kuake init` and `kuake instances` show 运行中/已关机 with color badge; init defaults to first running instance
+- **doctor checks Quark binding** — verifies `netdisk_list` includes Quark fs_id
+
+### Changed
+
+- **`PanelClient.sign_in()`** issues sign_in API call and updates Authorization header
+- **`PanelClient.bind_quark()`** wraps the cookie-binding POST
+- **`PanelClient.netdisk_list()`** returns list of bound netdisks
+- **Authorization header model**: now accepts the 40-char hex session token (no Bearer prefix). Pre-login Authorization is literal `"null"`.
+- **`kuake refresh`** uses saved `standalone_password_sha1` + pure HTTP sign_in (no browser)
+- **`refresh.run(_hold_lock=False)`** for the auto-refresh callback path inside `push` (avoids lock conflict)
+- **AutoDL session reuse**: `kuake init` saves `storage_state.json` immediately after AutoDL + Quark login; subsequent inits skip QR if cookies still valid
+- **AutoDL login page**: `wait_until="domcontentloaded"` + 60s timeout to avoid blocking on slow trackers
+
+### Fixed
+
+- **`is_expired_response`** now catches `code="AuthFailed"`, `code="NoAuth"`, and msg containing `"独立密码"` / `"请重新登录"` / `"登录已失效"` — earlier missed AutoPanel's actual error code
+- **`SessionDead` propagation** — when `refresh_callback()` fails, the original `SessionDead` propagates to the CLI top, giving the correct hint (`run kuake init`) instead of misleading `kuake refresh`
+- **`SESSION_DEAD.hint`** — now correctly says `kuake init` (was suggesting `kuake refresh` which had just failed)
+- **Stopped instance error** — clearer message: "该实例已关机 — 请先到 AutoDL 控制台开机"
+- **Quark cookies extracted from Playwright context** (not from stale `~/.quark/cookie.txt`)
+
+### Tests
+
+- 90 unit + mock-integration tests pass
+- T1-T10 of `docs/MANUAL_TEST.md` validated against real AutoDL + Quark account
+- T11 (cross-platform Mac) pending physical hardware
 
 ---
 
@@ -58,10 +106,6 @@ Initial implementation.
 - `browser/quark_scraper.py` — Quark Pan login + backup folder enumeration
 - `browser/smoke_test.py` — post-init link validation with detailed failure diagnostic
 
-### Test infrastructure
-- 67 tests passing (unit + mock integration via requests-mock)
-- Coverage: foundation modules 85-100%, domain modules 53-75%
-
 ### Documentation
 - README with installation, command reference, troubleshooting
 - `docs/TROUBLESHOOTING.md` — symptom-cause-fix table
@@ -75,6 +119,7 @@ Initial implementation.
 - (Linux unsupported: Quark has no Linux client)
 - Python 3.9+
 
-[Unreleased]: https://github.com/pymie/kuake-pipe/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/pymie/kuake-pipe/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/pymie/kuake-pipe/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/pymie/kuake-pipe/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/pymie/kuake-pipe/releases/tag/v0.1.0
