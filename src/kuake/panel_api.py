@@ -89,6 +89,34 @@ class PanelClient:
             raise NetworkError(f"API {ep} returned: {j}")
         return j["data"]
 
+    # ── AutoPanel auth & netdisk binding (v2026+ panel) ─────────────────
+    def sign_in(self, password_sha1: str) -> str:
+        """POST /sign_in with the SHA1 hash of the standalone password.
+        Returns the session token (also stored as new Authorization header)."""
+        # sign_in itself is called with Authorization='null'
+        prev_auth = self.s.headers.get("Authorization")
+        self.s.headers["Authorization"] = "null"
+        try:
+            token = self._request("POST", "/autopanel/v1/sign_in",
+                                  json={"password": password_sha1})
+        except Exception:
+            self.s.headers["Authorization"] = prev_auth or "null"
+            raise
+        # data is the session token string
+        self.s.headers["Authorization"] = token
+        return token
+
+    def bind_quark(self, quark_cookie: str) -> dict:
+        """POST /netdisk/oauth/quark with the full Quark Cookie header value.
+        Returns response data (user info)."""
+        return self._request("POST", "/autopanel/v1/netdisk/oauth/quark",
+                             json={"cookie": quark_cookie})
+
+    def netdisk_list(self) -> list:
+        """List configured netdisks. Empty list means none bound yet."""
+        data = self._request("GET", "/autopanel/v1/netdisk/list")
+        return data or []
+
     def workdir(self) -> str:
         return self._request("GET", "/autopanel/v1/workdir")
 

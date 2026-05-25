@@ -23,6 +23,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_init = sub.add_parser("init", help="首次配置向导")
     p_init.add_argument("--no-smoke", action="store_true", help="跳过末尾上传验证")
     p_init.add_argument("--ssh-key", action="store_true", help="强制密钥模式")
+    p_init.add_argument("--use-system-chrome", action="store_true",
+                        help="复用本机 Chrome profile (Chrome 必须先关闭)")
 
     p_push = sub.add_parser("push", help="上传 + 触发服务器解压")
     p_push.add_argument("task", help="任务名 (a-zA-Z0-9_-)")
@@ -96,7 +98,8 @@ def dispatch(args):
     cmd = args.cmd
     if cmd == "init":
         from kuake.commands import init
-        init.run(no_smoke=args.no_smoke, ssh_key=args.ssh_key)
+        init.run(no_smoke=args.no_smoke, ssh_key=args.ssh_key,
+                 use_system_chrome=args.use_system_chrome)
     elif cmd == "push":
         from kuake.commands import push
         push.run(args.task, args.src, no_unzip=args.no_unzip, keep_zip=args.keep_zip)

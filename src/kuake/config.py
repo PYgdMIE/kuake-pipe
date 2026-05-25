@@ -36,9 +36,11 @@ class Config:
 class Credentials:
     ssh_password: Optional[str]
     ssh_key_path: Optional[str]
-    panel_authorization: str
-    panel_autodl_token: str
-    expires_estimate: str  # ISO8601
+    panel_authorization: str       # session_token from sign_in (Authorization header)
+    panel_autodl_token: str        # JupyterLab token (AutodlAutoPanelToken header)
+    expires_estimate: str          # ISO8601
+    standalone_password_sha1: str = ""  # SHA1 of AutoPanel standalone password, for auto re-sign_in
+    quark_cookie: str = ""              # full Quark Cookie header, for auto re-bind on new instance
 
 
 @dataclass(frozen=True)
@@ -132,6 +134,10 @@ def write_credentials(cred: Credentials) -> None:
             "authorization": cred.panel_authorization,
             "autodl_token": cred.panel_autodl_token,
             "expires_estimate": cred.expires_estimate,
+            "standalone_password_sha1": cred.standalone_password_sha1 or "",
+        },
+        "quark": {
+            "cookie": cred.quark_cookie or "",
         },
     }
     _atomic_write_text(paths.credentials_file, tomli_w.dumps(data))
@@ -149,12 +155,15 @@ def read_credentials() -> Credentials:
     try:
         ssh = data.get("ssh", {})
         panel = data["panel"]
+        quark = data.get("quark", {})
         return Credentials(
             ssh_password=(ssh.get("password") or None),
             ssh_key_path=(ssh.get("key_path") or None),
             panel_authorization=panel["authorization"],
             panel_autodl_token=panel["autodl_token"],
             expires_estimate=panel.get("expires_estimate", ""),
+            standalone_password_sha1=panel.get("standalone_password_sha1", ""),
+            quark_cookie=quark.get("cookie", ""),
         )
     except (KeyError, TypeError, ValueError) as e:
         raise ConfigCorrupt(f"Credentials schema invalid: {e}") from e

@@ -25,6 +25,18 @@ AUTODL_LOGGED_IN = SelectorSet(
     ),
 )
 
+# Login page tab/button to switch from account-password to WeChat QR scan mode.
+AUTODL_QR_TAB = SelectorSet(
+    "autodl_qr_tab",
+    (
+        "text=微信扫码登录",
+        "text=扫码登录",
+        "text=微信登录",
+        "[class*='wechat-login']",
+        "[class*='qrcode-tab']",
+    ),
+)
+
 AUTODL_INSTANCE_ROW = SelectorSet(
     "autodl_instance_row",
     (

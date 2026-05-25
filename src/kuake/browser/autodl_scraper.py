@@ -8,7 +8,7 @@ from kuake.browser.selectors import (
     AUTODL_LOGIN_URL, AUTODL_CONSOLE_URL,
     AUTODL_LOGGED_IN, AUTODL_INSTANCE_ROW,
     AUTODL_INSTANCE_SSH, AUTODL_INSTANCE_PASSWORD,
-    AUTODL_AUTOPANEL_LINK, try_locators,
+    AUTODL_AUTOPANEL_LINK, AUTODL_QR_TAB, try_locators,
 )
 from kuake.errors import ScraperFailed
 from kuake.progress import info, ok
@@ -25,11 +25,30 @@ class InstanceInfo:
 
 
 def wait_login(page, timeout_seconds: int = 180) -> None:
-    """Navigate to login page and wait until logged-in indicator appears."""
-    info("打开 AutoDL 登录页,请在浏览器里完成扫码/SMS 登录...")
-    # wait_until="domcontentloaded" instead of default "load" to avoid 30s+
-    # blocking on analytics/tracker subresources on slow networks
+    """Navigate to login page and wait until logged-in indicator appears.
+    Auto-switches to WeChat QR tab if the page defaults to password mode."""
+    info("打开 AutoDL 登录页...")
     page.goto(AUTODL_LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+
+    # Already logged in via saved storage_state?
+    quick = try_locators(page, AUTODL_LOGGED_IN, timeout=2000)
+    if quick is not None:
+        ok("AutoDL 已通过保存的 session 登录")
+        return
+
+    # Try to auto-switch to QR tab (best-effort, default to password mode)
+    qr_tab = try_locators(page, AUTODL_QR_TAB, timeout=3000)
+    if qr_tab is not None:
+        try:
+            qr_tab.click()
+            info("已自动切换到微信扫码模式")
+            page.wait_for_timeout(800)
+        except Exception:
+            pass
+    else:
+        info("未找到扫码标签,按当前页面提示登录(密码或手机号)")
+
+    info("请在浏览器里完成登录(扫码/密码/SMS 任意方式)...")
     loc = try_locators(page, AUTODL_LOGGED_IN, timeout=timeout_seconds * 1000)
     if loc is None:
         raise ScraperFailed(
