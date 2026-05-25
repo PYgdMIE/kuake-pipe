@@ -128,12 +128,21 @@ AUTOPANEL_API_PATTERN = "**/autopanel/v1/**"
 
 
 def try_locators(page, selector_set: SelectorSet, timeout: int = 5000):
-    """Try each strategy in order. Return first matching Locator, or None."""
-    for strategy in selector_set.strategies:
-        try:
-            loc = page.locator(strategy).first
-            loc.wait_for(state="attached", timeout=timeout)
-            return loc
-        except Exception:
-            continue
-    return None
+    """Poll all strategies within `timeout` ms total budget.
+    Returns the first Locator whose `.count() > 0`, or None on timeout.
+    Polling interleaves strategies so total wait is bounded by timeout, not
+    timeout × len(strategies)."""
+    import time
+    deadline = time.time() + (timeout / 1000.0)
+    poll_interval = 0.5
+    while True:
+        for strategy in selector_set.strategies:
+            try:
+                loc = page.locator(strategy).first
+                if loc.count() > 0:
+                    return loc
+            except Exception:
+                continue
+        if time.time() >= deadline:
+            return None
+        time.sleep(poll_interval)

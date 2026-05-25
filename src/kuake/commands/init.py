@@ -14,6 +14,21 @@ from kuake.progress import info, ok, warn, console
 from kuake.ssh_exec import SshExec, generate_ed25519_keypair
 
 
+def _prompt_index(prompt: str, n: int, default: int = 1) -> int:
+    """Ask user for 1-based index in [1, n]. Returns 0-based.
+    Loops on invalid input; never raises."""
+    while True:
+        raw = Prompt.ask(prompt, default=str(default))
+        try:
+            v = int(raw)
+        except ValueError:
+            warn(f"请输入 1-{n} 之间的数字")
+            continue
+        if 1 <= v <= n:
+            return v - 1
+        warn(f"超出范围 1-{n}")
+
+
 def run(no_smoke: bool = False, ssh_key: bool = False) -> None:
     paths = config_paths()
     paths.home.mkdir(parents=True, exist_ok=True)
@@ -45,8 +60,7 @@ def run(no_smoke: bool = False, ssh_key: bool = False) -> None:
             console.print("\n[bold]检测到 AutoDL 实例:[/bold]")
             for i, r in enumerate(rows, 1):
                 console.print(f"  [{i}] {r['label'][:80]}")
-            choice = Prompt.ask("选择实例", default="1")
-            idx = int(choice) - 1
+            idx = _prompt_index("选择实例", len(rows))
             chosen = rows[idx]
 
             # 5. extract SSH + AutoPanel URL
@@ -100,8 +114,8 @@ def run(no_smoke: bool = False, ssh_key: bool = False) -> None:
             console.print("\n[bold]检测到夸克备份目录:[/bold]")
             for i, n in enumerate(folders, 1):
                 console.print(f"  [{i}] {n}")
-            qchoice = Prompt.ask("选择 PC 备份目录", default="1")
-            pc_folder = folders[int(qchoice) - 1]
+            qidx = _prompt_index("选择 PC 备份目录", len(folders))
+            pc_folder = folders[qidx]
             subname = Prompt.ask(
                 "备份子目录名 (本地夸克客户端备份的目录名)", default="UPLOAD"
             )
