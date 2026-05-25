@@ -42,8 +42,8 @@ dev = [
 kuake = "kuake.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/yourorg/kuake-pipe"
-Issues = "https://github.com/yourorg/kuake-pipe/issues"
+Homepage = "https://github.com/pymie/kuake-pipe"
+Issues = "https://github.com/pymie/kuake-pipe/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kuake"]

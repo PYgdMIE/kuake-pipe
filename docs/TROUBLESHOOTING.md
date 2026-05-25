@@ -29,7 +29,7 @@ HTTPS_PROXY=http://127.0.0.1:7890 python -m playwright install chromium
 KUAKE_DEBUG=1 kuake init
 ```
 
-如 traceback 含 `ScraperFailed`,到 [issues](https://github.com/yourorg/kuake-pipe/issues) 报告,附:
+如 traceback 含 `ScraperFailed`,到 [issues](https://github.com/pymie/kuake-pipe/issues) 报告,附:
 
 - traceback 完整文本
 - 夸克或 AutoDL 当前页面截图

@@ -25,7 +25,7 @@ MESSAGES_ZH: dict[str, str] = {
     "PLATFORM_UNSUPPORTED": "当前平台不支持",
     "PLATFORM_UNSUPPORTED.hint": "kuake-pipe v1 仅支持 Windows 和 macOS(夸克无 Linux 客户端)",
     "SCRAPER_FAILED": "网页内容抓取失败,可能是夸克/AutoDL 页面改版",
-    "SCRAPER_FAILED.hint": "请到 https://github.com/yourorg/kuake-pipe/issues 提交 issue",
+    "SCRAPER_FAILED.hint": "请到 https://github.com/pymie/kuake-pipe/issues 提交 issue",
     "CONFIG_MISSING": "未找到配置文件",
     "CONFIG_MISSING.hint": "运行 `kuake init` 完成首次配置",
     "CONFIG_CORRUPT": "配置文件损坏",

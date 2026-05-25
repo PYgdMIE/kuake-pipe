@@ -2,9 +2,10 @@
 
 > 本地 → 夸克网盘 → AutoDL 服务器 全自动数据中转。零硬编码,凭据自动抓取,过期自动刷新。
 
-[![Tests](https://img.shields.io/badge/tests-67%20passing-brightgreen)]()
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue)]()
-[![License](https://img.shields.io/badge/license-MIT-blue)]()
+[![Tests](https://github.com/pymie/kuake-pipe/actions/workflows/test.yml/badge.svg)](https://github.com/pymie/kuake-pipe/actions/workflows/test.yml)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)
 
 **支持平台**: Windows、macOS  (Linux 上夸克网盘无客户端,暂不支持)
 
