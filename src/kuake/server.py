@@ -228,6 +228,41 @@ class JobStore:
                 self.update(meta["job_id"], status="interrupted",
                             finished_at=datetime.now().isoformat(timespec="seconds"))
 
+    def prune_old(self, keep_count: int = 100, max_age_days: int = 14) -> int:
+        """老 job 文件清理: 同时满足
+          - 在最新 keep_count 之外 (按 mtime)
+          - 且 mtime > max_age_days 天前
+        的 <job_id>.json + <job_id>.log 一起删。
+
+        进行中的 job (status=running) 永远不删 (即使老)。
+        返回删除的 job 数。
+        """
+        files = sorted(self.dir.glob("*.json"),
+                       key=lambda f: f.stat().st_mtime, reverse=True)
+        if len(files) <= keep_count:
+            return 0
+        now = time.time()
+        threshold = max_age_days * 86400
+        deleted = 0
+        for p in files[keep_count:]:
+            try:
+                meta = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if meta.get("status") == "running":
+                continue  # 不动正在跑的
+            if now - p.stat().st_mtime < threshold:
+                continue  # 还嫩, 不删
+            log_path = self.dir / f"{meta.get('job_id', '')}.log"
+            try:
+                p.unlink()
+                if log_path.exists():
+                    log_path.unlink()
+                deleted += 1
+            except OSError:
+                pass
+        return deleted
+
 
 def _pid_alive(pid: int) -> bool:
     """跨平台粗略判断 PID 是否还在 (避免引入 psutil 依赖)。"""
@@ -273,6 +308,9 @@ def create_app() -> Flask:
     app = Flask(__name__, template_folder=str(_TEMPLATE_DIR))
     store = JobStore(config_paths().home)
     store.sweep_stale()
+    pruned = store.prune_old()
+    if pruned:
+        print(f"  · 清理了 {pruned} 个 > 14 天的 job 文件")
 
     @app.before_request
     def _check_auth_and_csrf():

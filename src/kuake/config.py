@@ -97,6 +97,50 @@ def write_config(cfg: Config) -> None:
     _atomic_write_text(paths.config_file, tomli_w.dumps(nested))
 
 
+def validate_config(cfg: Config) -> None:
+    """Semantic checks beyond TOML shape — raise ConfigCorrupt with clear msg。
+
+    catches:
+      - empty / 假值字段
+      - port 非法范围
+      - auth_mode 取值
+      - panel_base 不是 http(s) URL
+      - 路径不是绝对路径 (云端 / 远端)
+    """
+    errors: list[str] = []
+    if not cfg.host:
+        errors.append("instance.host 不能为空")
+    if not (0 < cfg.port < 65536):
+        errors.append(f"instance.port 必须 1-65535, 现为 {cfg.port}")
+    if not cfg.user:
+        errors.append("instance.user 不能为空")
+    if cfg.auth_mode not in ("password", "key"):
+        errors.append(f"instance.auth_mode 必须 'password' 或 'key', 现为 {cfg.auth_mode!r}")
+    if not cfg.panel_base.startswith(("http://", "https://")):
+        errors.append(f"panel.base 必须 http(s):// 开头, 现为 {cfg.panel_base!r}")
+    if not cfg.cloud_backup_path.startswith("/"):
+        errors.append(f"quark.cloud_backup_path 必须以 / 开头, 现为 {cfg.cloud_backup_path!r}")
+    if not cfg.remote_tmp_dir.startswith("/"):
+        errors.append(f"remote.tmp_dir 必须以 / 开头, 现为 {cfg.remote_tmp_dir!r}")
+    if errors:
+        raise ConfigCorrupt("config.toml 字段无效:\n  - " + "\n  - ".join(errors))
+
+
+def validate_credentials(cred: Credentials) -> None:
+    """凭据语义校验 — 至少要有 SSH 凭据 + panel 鉴权头。
+
+    注意: 故意不校验 ssh_key_path 是否真存在 (key 文件可能临时被移走但 config
+    仍 "valid";真正用时 paramiko 会报清晰错。)
+    """
+    errors: list[str] = []
+    if not (cred.ssh_password or cred.ssh_key_path):
+        errors.append("ssh.password 和 ssh.key_path 不能同时空 (至少给一个)")
+    if not cred.panel_authorization:
+        errors.append("panel.authorization 不能为空 (跑 kuake refresh 重新签发)")
+    if errors:
+        raise ConfigCorrupt("credentials.toml 字段无效:\n  - " + "\n  - ".join(errors))
+
+
 def read_config() -> Config:
     paths = config_paths()
     if not paths.config_file.exists():
@@ -106,7 +150,7 @@ def read_config() -> Config:
     except (tomllib.TOMLDecodeError, UnicodeDecodeError, ValueError) as e:
         raise ConfigCorrupt(f"Cannot parse config: {e}") from e
     try:
-        return Config(
+        cfg = Config(
             host=data["instance"]["host"],
             port=int(data["instance"]["port"]),
             user=data["instance"]["user"],
@@ -121,6 +165,8 @@ def read_config() -> Config:
         )
     except (KeyError, TypeError, ValueError) as e:
         raise ConfigCorrupt(f"Config schema invalid: {e}") from e
+    validate_config(cfg)
+    return cfg
 
 
 def write_credentials(cred: Credentials) -> None:
@@ -156,7 +202,7 @@ def read_credentials() -> Credentials:
         ssh = data.get("ssh", {})
         panel = data["panel"]
         quark = data.get("quark", {})
-        return Credentials(
+        cred = Credentials(
             ssh_password=(ssh.get("password") or None),
             ssh_key_path=(ssh.get("key_path") or None),
             panel_authorization=panel["authorization"],
@@ -167,6 +213,8 @@ def read_credentials() -> Credentials:
         )
     except (KeyError, TypeError, ValueError) as e:
         raise ConfigCorrupt(f"Credentials schema invalid: {e}") from e
+    validate_credentials(cred)
+    return cred
 
 
 def update_last_refresh() -> None:
