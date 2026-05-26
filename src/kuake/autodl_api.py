@@ -17,6 +17,7 @@ Auth: 需要 JWT in `Authorization` header(在 localStorage.token 里),
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -133,6 +134,45 @@ class AutoDLClient:
             if inst.get("uuid") == uuid:
                 return inst
         return None
+
+    def wait_until_running(
+        self,
+        uuid: str,
+        *,
+        timeout: int = 600,
+        poll: int = 5,
+        progress_cb: Callable[[str], None] | None = None,
+    ) -> dict:
+        """Poll until instance with given uuid reaches status='running'.
+
+        AutoDL 创建后状态变迁(观察): "" / starting / running / shutdown.
+        Args:
+            uuid: 实例 uuid (confirm-create 返回的)
+            timeout: 总等待秒数, 超时 raise NetworkError
+            poll: 每次查询间隔
+            progress_cb: 每次 poll 调用一次, 传当前 status 字符串
+        Returns:
+            running 状态下的 instance dict
+        """
+        import time as _time
+        start = _time.monotonic()
+        last_status = ""
+        while _time.monotonic() - start < timeout:
+            inst = self.get_instance(uuid)
+            if inst is None:
+                status = "not-found"
+            else:
+                status = (inst.get("status") or "").lower()
+            if status != last_status:
+                last_status = status
+                if progress_cb:
+                    progress_cb(status or "?")
+            if status == "running":
+                return inst  # type: ignore[return-value]
+            _time.sleep(poll)
+        raise NetworkError(
+            f"实例 {uuid[:12]} 等待 {timeout}s 仍未 running (最后状态={last_status!r})"
+        )
 
     def wallet_balance(self) -> dict:
         """Returns wallet info {balance_xxx, ...} for dry-run cost preview."""

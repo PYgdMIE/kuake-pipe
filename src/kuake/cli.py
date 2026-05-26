@@ -113,6 +113,62 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_cc.add_argument("--plan-file", required=True,
                       help="grab/clone 生成的 plan JSON 路径")
+    p_cc.add_argument("--yes", action="store_true",
+                      help="⚠ 跳过 stdin 输 YES, 3s grace 后自动下单 (CC/Codex 自动化用)")
+
+    p_wait = sub.add_parser(
+        "wait-running",
+        help="阻塞直到实例 status=running (CC/Codex 自动化用, 用于 chain)",
+    )
+    p_wait.add_argument("target",
+                        help="实例 uuid (完整/前缀) 或 1-based 索引")
+    p_wait.add_argument("--timeout", type=int, default=600,
+                        help="最长等待秒数 (默认 600)")
+    p_wait.add_argument("--poll", type=int, default=5,
+                        help="轮询间隔秒数 (默认 5)")
+
+    p_auto = sub.add_parser(
+        "auto",
+        help="端到端: grab → confirm-create → wait → init → push (CC/Codex 一键调)",
+    )
+    p_auto.add_argument("--gpu", action="append", default=[],
+                        help="目标 GPU 型号 (可多次, 留空 = 不限)")
+    p_auto.add_argument("--region", action="append", default=[],
+                        help="目标 region (可多次)")
+    p_auto.add_argument("--cpu-ok", action="store_true",
+                        help="也接受 CPU 实例")
+    p_auto.add_argument("--min-idle", type=int, default=1,
+                        help="市场过滤: 至少多少张空闲 GPU")
+    p_auto.add_argument("--gpu-count", type=int, default=1,
+                        help="创建时申请几张卡")
+    p_auto.add_argument("--expand-data-disk", type=int, default=0,
+                        help="数据盘扩容 GB")
+    p_auto.add_argument("--system-disk-expand", type=int, default=0,
+                        help="系统盘扩容 GB")
+    p_auto.add_argument("--image", default=None,
+                        help="自定义镜像 URL")
+    p_auto.add_argument("--poll", type=int, default=5,
+                        help="市场轮询间隔秒")
+    p_auto.add_argument("--max-market-iter", type=int, default=0,
+                        help="市场最多轮询次数 (0=无限)")
+    p_auto.add_argument("--ready-timeout", type=int, default=600,
+                        help="等机器 ready 最大秒数 (默认 600)")
+    p_auto.add_argument("--autopanel-password", default=None,
+                        help="AutoPanel 独立密码 (或设 KUAKE_AUTOPANEL_PASSWORD)")
+    p_auto.add_argument("--cloud-dir", default=None,
+                        help="云端上传目录 (默认 /kuake-uploads)")
+    p_auto.add_argument("--task", default=None,
+                        help="推送任务名 (要走 push 阶段时必填)")
+    p_auto.add_argument("--src", default=None,
+                        help="本地数据路径 (要走 push 阶段时必填)")
+    p_auto.add_argument("--no-unzip", action="store_true",
+                        help="服务器侧不解压")
+    p_auto.add_argument("--keep-zip", action="store_true",
+                        help="解压后保留本地 zip")
+    p_auto.add_argument("--stop-after", choices=["create", "ready", "init", "push"],
+                        default="push",
+                        help="到哪一步停: create=下单后就停 / ready=等就绪 / "
+                             "init=配好凭据 / push=完整跑完 (默认)")
 
     p_serve = sub.add_parser(
         "serve",
@@ -234,7 +290,34 @@ def dispatch(args):
         )
     elif cmd == "confirm-create":
         from kuake.commands import confirm_create
-        confirm_create.run(plan_file=args.plan_file)
+        confirm_create.run(plan_file=args.plan_file, yes=args.yes)
+    elif cmd == "wait-running":
+        from kuake.commands import wait_running
+        wait_running.run(args.target, timeout=args.timeout, poll=args.poll)
+    elif cmd == "auto":
+        from kuake.commands import auto
+        autopanel_pw = (args.autopanel_password
+                        or os.environ.get("KUAKE_AUTOPANEL_PASSWORD"))
+        auto.run(
+            gpu_types=args.gpu or None,
+            regions=args.region or None,
+            cpu_ok=args.cpu_ok,
+            min_idle_gpu=args.min_idle,
+            gpu_count=args.gpu_count,
+            expand_data_disk_gb=args.expand_data_disk,
+            system_disk_change_size_gb=args.system_disk_expand,
+            image=args.image,
+            poll_seconds=args.poll,
+            max_market_iters=args.max_market_iter,
+            ready_timeout=args.ready_timeout,
+            autopanel_password=autopanel_pw,
+            cloud_dir=args.cloud_dir,
+            task=args.task,
+            src=args.src,
+            no_unzip=args.no_unzip,
+            keep_zip=args.keep_zip,
+            stop_after=args.stop_after,
+        )
     elif cmd == "serve":
         from kuake import server
         server.serve(host=args.host, port=args.port,
