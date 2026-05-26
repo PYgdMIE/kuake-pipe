@@ -42,7 +42,9 @@ jobs:
   publish-pypi:
     needs: build
     runs-on: ubuntu-latest
-    environment: pypi
+    # continue-on-error 让 PyPI 没配 trusted publisher 时 不阻断 ghcr/release.
+    # 设好 PyPI 后改回 false 让 PyPI 失败也成为硬错误。
+    continue-on-error: true
     permissions:
       id-token: write  # OIDC, 取代 API token
     steps:
@@ -53,7 +55,12 @@ jobs:
           path: dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        # 若 PyPI 侧未配 trusted publisher, 该步会失败但其它 job 不受影响
+        # PyPI 侧一次性配置 (https://pypi.org/manage/account/publishing/):
+        #   project: kuake-pipe
+        #   owner: PYgdMIE
+        #   repo: kuake-pipe
+        #   workflow filename: release.yml
+        #   environment: (留空 — 我们移除了 environment 限制以避免 GitHub 端要建 env)
 
   publish-ghcr:
     needs: build
