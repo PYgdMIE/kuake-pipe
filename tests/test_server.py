@@ -307,6 +307,122 @@ def test_render_image_url_unknown_framework():
     assert render_image_url("Caffe", "1.0", "3.10", "11.0") == ""
 
 
+# ── auth + CSRF ───────────────────────────────────────────────
+
+@pytest.fixture
+def app_with_auth(kuake_home):
+    """像 serve() 一样设 _AUTH_TOKEN + _HOST_ORIGIN, 测完恢复。"""
+    from kuake import server
+    old_token = server._AUTH_TOKEN
+    old_origin = server._HOST_ORIGIN
+    server._AUTH_TOKEN = "secret-test-token-abc"
+    server._HOST_ORIGIN = "http://127.0.0.1:8765"
+    a = server.create_app()
+    a.config["TESTING"] = True
+    try:
+        yield a
+    finally:
+        server._AUTH_TOKEN = old_token
+        server._HOST_ORIGIN = old_origin
+
+
+@pytest.fixture
+def client_with_auth(app_with_auth):
+    return app_with_auth.test_client()
+
+
+def test_auth_missing_token_returns_401(client_with_auth):
+    r = client_with_auth.get("/api/jobs")
+    assert r.status_code == 401
+    assert "Unauthorized" in r.get_json()["error"]
+
+
+def test_auth_wrong_token_returns_401(client_with_auth):
+    r = client_with_auth.get("/api/jobs?token=wrong")
+    assert r.status_code == 401
+
+
+def test_auth_query_token_accepted(client_with_auth):
+    r = client_with_auth.get("/api/jobs?token=secret-test-token-abc")
+    assert r.status_code == 200
+
+
+def test_auth_header_token_accepted(client_with_auth):
+    r = client_with_auth.get(
+        "/api/jobs", headers={"X-Kuake-Token": "secret-test-token-abc"})
+    assert r.status_code == 200
+
+
+def test_auth_cookie_token_accepted(client_with_auth):
+    client_with_auth.set_cookie("kuake_auth", "secret-test-token-abc")
+    r = client_with_auth.get("/api/jobs")
+    assert r.status_code == 200
+
+
+def test_index_with_token_sets_cookie(client_with_auth):
+    r = client_with_auth.get("/?token=secret-test-token-abc")
+    assert r.status_code == 200
+    # cookie 应该被 set
+    set_cookie = r.headers.get("Set-Cookie", "")
+    assert "kuake_auth=secret-test-token-abc" in set_cookie
+    assert "HttpOnly" in set_cookie
+
+
+def test_index_without_token_serves_401_html(client_with_auth):
+    r = client_with_auth.get("/")
+    assert r.status_code == 401
+    assert b"Unauthorized" in r.data
+
+
+def test_csrf_cross_origin_post_rejected(client_with_auth):
+    r = client_with_auth.post(
+        "/api/pick-path",
+        headers={
+            "X-Kuake-Token": "secret-test-token-abc",
+            "Origin": "https://evil.example.com",
+        },
+        json={"kind": "folder"},
+    )
+    assert r.status_code == 403
+    assert "CSRF" in r.get_json()["error"]
+
+
+def test_csrf_same_origin_post_passes(client_with_auth):
+    with patch("kuake.server._pick_path_subprocess", return_value="/tmp/x"):
+        r = client_with_auth.post(
+            "/api/pick-path",
+            headers={
+                "X-Kuake-Token": "secret-test-token-abc",
+                "Origin": "http://127.0.0.1:8765",
+            },
+            json={"kind": "folder"},
+        )
+    assert r.status_code == 200
+
+
+def test_csrf_no_origin_post_passes(client_with_auth):
+    """curl 不发 Origin -> 允许 (是用户主动操作)。"""
+    with patch("kuake.server._pick_path_subprocess", return_value="/tmp/x"):
+        r = client_with_auth.post(
+            "/api/pick-path",
+            headers={"X-Kuake-Token": "secret-test-token-abc"},
+            json={"kind": "folder"},
+        )
+    assert r.status_code == 200
+
+
+def test_csrf_get_unaffected(client_with_auth):
+    """GET 不查 Origin (无副作用方法)。"""
+    r = client_with_auth.get(
+        "/api/jobs",
+        headers={
+            "X-Kuake-Token": "secret-test-token-abc",
+            "Origin": "https://evil.example.com",
+        },
+    )
+    assert r.status_code == 200
+
+
 # ── stage detection ───────────────────────────────────────────
 
 def test_detect_stage_matches_push_bracket_n_of_4():

@@ -27,6 +27,7 @@ import json
 import os
 import queue
 import re
+import secrets
 import subprocess
 import sys
 import threading
@@ -56,6 +57,15 @@ _LIVE_QUEUES: dict[str, queue.Queue] = {}
 _LIVE_PROCS: dict[str, subprocess.Popen] = {}
 # 标记 job 是否被用户主动 cancel, runner 在 wait() 后据此判断是否覆盖状态
 _CANCELLED: set[str] = set()
+
+# ── Auth + CSRF (本机 only, 但 --host 0.0.0.0 暴露时这两个就是必需) ────
+# 由 serve() 启动时填; None = --no-auth 模式 (不做检查)。
+_AUTH_TOKEN: str | None = None
+# 期望的 same-origin, 比如 "http://127.0.0.1:8765";由 serve() 设。
+_HOST_ORIGIN: str = ""
+AUTH_COOKIE_NAME = "kuake_auth"
+AUTH_QUERY_NAME = "token"
+AUTH_HEADER_NAME = "X-Kuake-Token"
 
 _STAGE_RE = re.compile(r"\[(\d)/(\d)\]")
 
@@ -249,14 +259,56 @@ def _client() -> AutoDLClient:
     return AutoDLClient(jwt=jwt)
 
 
+def _extract_token() -> str | None:
+    """从 cookie / 自定义 header / 查询字符串里抽 token (优先级 cookie > header > query)。"""
+    return (
+        request.cookies.get(AUTH_COOKIE_NAME)
+        or request.headers.get(AUTH_HEADER_NAME)
+        or request.args.get(AUTH_QUERY_NAME)
+    )
+
+
 def create_app() -> Flask:
     app = Flask(__name__, template_folder=str(_TEMPLATE_DIR))
     store = JobStore(config_paths().home)
     store.sweep_stale()
 
+    @app.before_request
+    def _check_auth_and_csrf():
+        # 1) auth
+        if _AUTH_TOKEN is not None:
+            tok = _extract_token()
+            if tok != _AUTH_TOKEN:
+                if request.path == "/" and request.method == "GET":
+                    return (
+                        "<h1>401 Unauthorized</h1>"
+                        "<p>这个 kuake serve 启用了 token 认证。"
+                        "请回到启动 server 的终端,复制带 ?token=XXX 的 URL 打开,"
+                        "或 <code>kuake serve --no-auth</code> 关闭 (仅本机使用!)。</p>"
+                    ), 401
+                return jsonify({
+                    "error": "Unauthorized — 缺 token (cookie / X-Kuake-Token / ?token=)",
+                }), 401
+
+        # 2) CSRF: 仅对 state-changing 方法检查 Origin (有 → 必须 same-origin;无 → 允许 curl)
+        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            origin = request.headers.get("Origin")
+            if origin and _HOST_ORIGIN and origin != _HOST_ORIGIN:
+                return jsonify({
+                    "error": f"CSRF 拒绝: Origin {origin!r} != 期望 {_HOST_ORIGIN!r}",
+                }), 403
+
     @app.route("/")
     def index():
-        return send_from_directory(_TEMPLATE_DIR, "index.html")
+        resp = send_from_directory(_TEMPLATE_DIR, "index.html")
+        # 首次带 ?token=X 访问 → set cookie, 之后浏览器自动带
+        if _AUTH_TOKEN and request.args.get(AUTH_QUERY_NAME) == _AUTH_TOKEN:
+            if request.cookies.get(AUTH_COOKIE_NAME) != _AUTH_TOKEN:
+                resp.set_cookie(
+                    AUTH_COOKIE_NAME, _AUTH_TOKEN,
+                    httponly=True, samesite="Strict", path="/",
+                )
+        return resp
 
     # ── 镜像目录 (静态) ────────────────────────────────────────
     @app.route("/api/image-presets")
@@ -774,11 +826,37 @@ def _save_and_serialize(plan, *, prefix: str):
     })
 
 
-def serve(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
-    """Boot the dev server. Foreground / blocks until Ctrl+C."""
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    open_browser: bool = True,
+    no_auth: bool = False,
+) -> None:
+    """Boot the dev server. Foreground / blocks until Ctrl+C.
+
+    no_auth: True = 跳过 token 检查 (仅本机 localhost 时可接受)
+    """
+    global _AUTH_TOKEN, _HOST_ORIGIN
+    _AUTH_TOKEN = None if no_auth else secrets.token_urlsafe(24)
+    _HOST_ORIGIN = f"http://{host}:{port}"
+
     app = create_app()
-    url = f"http://{host}:{port}/"
+    base_url = f"{_HOST_ORIGIN}/"
+
+    if _AUTH_TOKEN is None:
+        url = base_url
+        print(f"kuake serve → {url}  (Ctrl+C 退出)")
+        if host != "127.0.0.1":
+            print(f"⚠ --no-auth + --host {host} = 无认证暴露非本机!"
+                  f" 建议改回 127.0.0.1 或去掉 --no-auth")
+    else:
+        url = f"{base_url}?{AUTH_QUERY_NAME}={_AUTH_TOKEN}"
+        print(f"kuake serve → {base_url}  (Ctrl+C 退出)")
+        print("🔐 token 认证已启用, 用这个 URL 打开:")
+        print(f"   {url}")
+        print(f"   (curl 用 -H '{AUTH_HEADER_NAME}: {_AUTH_TOKEN}' 也行)")
+        print("   关闭认证: kuake serve --no-auth")
+
     if open_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    print(f"kuake serve → {url}  (Ctrl+C 退出)")
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)

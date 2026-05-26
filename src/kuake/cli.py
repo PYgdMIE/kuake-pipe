@@ -174,14 +174,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_serve = sub.add_parser(
         "serve",
-        help="启动本地 Web UI (抢卡 + 上传)",
+        help="启动本地 Web UI (抢卡 + 上传 + 全自动)",
     )
     p_serve.add_argument("--port", type=int, default=8765,
                          help="监听端口 (默认 8765)")
     p_serve.add_argument("--host", default="127.0.0.1",
-                         help="监听地址 (默认 127.0.0.1)")
+                         help="监听地址 (默认 127.0.0.1, 改 0.0.0.0 暴露非本机请保留认证)")
     p_serve.add_argument("--no-browser", action="store_true",
                          help="不自动开浏览器")
+    p_serve.add_argument("--no-auth", action="store_true",
+                         help="关闭 token 认证 (本机 only 时可用,暴露内网千万别加)")
 
     return parser
 
@@ -324,7 +326,8 @@ def dispatch(args):
     elif cmd == "serve":
         from kuake import server
         server.serve(host=args.host, port=args.port,
-                     open_browser=not args.no_browser)
+                     open_browser=not args.no_browser,
+                     no_auth=args.no_auth)
     else:
         raise ValueError(f"Unknown command: {cmd}")
 
