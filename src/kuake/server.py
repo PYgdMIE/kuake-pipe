@@ -11,16 +11,21 @@
   POST /api/grab-plan {filters}       根据 filter 生成 PLAN 文件
   POST /api/clone-plan {source, ...}  生成 clone PLAN
   POST /api/confirm-create {plan, yes}必须 yes=='YES', 真下单
-  POST /api/push-start {task, src}    spawn `kuake push` 子进程, 返回 job_id
-  GET  /api/push-stream/<job_id>      SSE 推日志行 (含已写入历史 + 实时新行)
+  POST /api/push-start {task, src, no_unzip?, keep_zip?}  spawn `kuake push`
+  POST /api/push-cancel/<job_id>      终止运行中的 push 子进程
+  GET  /api/push-stream/<job_id>      SSE: line/stage/done 三种事件
   GET  /api/jobs                      列最近 N 个 push job (从 ~/.kuake/jobs/ 读)
   GET  /api/jobs/<job_id>             单 job 详情 + 完整 log
+  POST /api/pick-path {kind}          后端 tkinter 弹文件/目录选择 → 返回绝对路径
+  GET  /api/remote/ls                 spawn `kuake ls` 列远端 tasks
+  POST /api/remote/rm {task, confirm} spawn `kuake rm <task> -y` (confirm 必须 YES)
 """
 from __future__ import annotations
 
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -44,7 +49,20 @@ from kuake.errors import NetworkError
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 # 进程内 live queue, 用于 SSE 实时推送 (job 跑完后从文件回放)
+# queue 内容: ("line", str) | ("stage", int) | None (终止)
 _LIVE_QUEUES: dict[str, queue.Queue] = {}
+# 进程内 Popen 引用, 给 push-cancel 用
+_LIVE_PROCS: dict[str, subprocess.Popen] = {}
+# 标记 job 是否被用户主动 cancel, runner 在 wait() 后据此判断是否覆盖状态
+_CANCELLED: set[str] = set()
+
+_STAGE_RE = re.compile(r"\[(\d)/4\]")
+
+
+def _detect_stage(line: str) -> int | None:
+    """从日志行抽取 [N/4] 阶段号, 没有就返回 None."""
+    m = _STAGE_RE.search(line)
+    return int(m.group(1)) if m else None
 
 
 # ── 镜像目录 (来自 AutoDL Web UI 选择器观察) ─────────────────────
@@ -399,69 +417,126 @@ def create_app() -> Flask:
         data = request.get_json() or {}
         task = data.get("task", "").strip()
         src = data.get("src", "").strip()
+        no_unzip = bool(data.get("no_unzip", False))
+        keep_zip = bool(data.get("keep_zip", False))
         if not task or not src:
             return jsonify({"error": "task + src required"}), 400
         if not Path(src).exists():
             return jsonify({"error": f"src 不存在: {src}"}), 404
 
-        job_id = store.create("push", {"task": task, "src": src})
+        job_id = store.create("push", {
+            "task": task, "src": src,
+            "no_unzip": no_unzip, "keep_zip": keep_zip,
+        })
         log_q: queue.Queue = queue.Queue()
         _LIVE_QUEUES[job_id] = log_q
 
-        def runner():
+        def runner() -> None:
             log_path = store.log_path(job_id)
+            args = [sys.executable, "-m", "kuake", "push", task, src]
+            if no_unzip:
+                args.append("--no-unzip")
+            if keep_zip:
+                args.append("--keep-zip")
             proc = subprocess.Popen(
-                [sys.executable, "-m", "kuake", "push", task, src],
+                args,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace",
             )
+            _LIVE_PROCS[job_id] = proc
             store.update(job_id, pid=proc.pid)
             with open(log_path, "a", encoding="utf-8") as logf:
                 for line in proc.stdout or []:
                     logf.write(line)
                     logf.flush()
-                    log_q.put(line.rstrip("\r\n"))
+                    stripped = line.rstrip("\r\n")
+                    stage = _detect_stage(stripped)
+                    if stage is not None:
+                        log_q.put(("stage", stage))
+                    log_q.put(("line", stripped))
             proc.wait()
-            store.update(job_id,
-                         status="completed" if proc.returncode == 0 else "failed",
-                         exit_code=proc.returncode,
-                         finished_at=datetime.now().isoformat(timespec="seconds"))
+            _LIVE_PROCS.pop(job_id, None)
+            # 若已被主动 cancel, 不要覆盖状态 (仍记录 exit_code)
+            if job_id in _CANCELLED:
+                _CANCELLED.discard(job_id)
+                store.update(job_id, exit_code=proc.returncode)
+            else:
+                store.update(
+                    job_id,
+                    status="completed" if proc.returncode == 0 else "failed",
+                    exit_code=proc.returncode,
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
             log_q.put(None)
             _LIVE_QUEUES.pop(job_id, None)
 
         threading.Thread(target=runner, daemon=True).start()
         return jsonify({"job_id": job_id})
 
+    @app.route("/api/push-cancel/<job_id>", methods=["POST"])
+    def api_push_cancel(job_id: str):
+        proc = _LIVE_PROCS.get(job_id)
+        if not proc:
+            return jsonify({"error": "未找到运行中进程 (job 可能已结束或属于上次启动遗留)"}), 404
+        _CANCELLED.add(job_id)
+        store.update(
+            job_id,
+            status="cancelled",
+            finished_at=datetime.now().isoformat(timespec="seconds"),
+        )
+        try:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        except Exception as e:  # noqa: BLE001
+            return jsonify({"error": f"终止失败: {e}"}), 500
+        return jsonify({"ok": True})
+
     @app.route("/api/push-stream/<job_id>")
-    def api_push_stream(job_id):
+    def api_push_stream(job_id: str):
         meta = store.get(job_id)
         if not meta:
             return jsonify({"error": "unknown job_id"}), 404
 
         def gen():
-            # 1) 回放已写入的历史
+            # 1) 回放已写入的历史 — 顺便扫最大阶段号, 让 UI 直接回到当前进度
             existing = store.read_log(job_id)
+            max_stage = 0
             for line in existing.splitlines():
+                s = _detect_stage(line)
+                if s and s > max_stage:
+                    max_stage = s
+                    yield f"event: stage\ndata: {json.dumps({'stage': s})}\n\n"
                 yield f"data: {json.dumps({'line': line}, ensure_ascii=False)}\n\n"
 
             # 2) 如果 job 已结束, 直接 done
             cur = store.get(job_id) or {}
             if cur.get("status") != "running":
-                yield (f"event: done\ndata: "
-                       f"{json.dumps({'exit_code': cur.get('exit_code'), 'status': cur.get('status')})}\n\n")
+                yield (
+                    f"event: done\ndata: "
+                    f"{json.dumps({'exit_code': cur.get('exit_code'), 'status': cur.get('status')})}\n\n"
+                )
                 return
 
             # 3) 还在跑 → 订阅 live queue;若进程是上次启动遗留的, queue 不存在 → 轮询文件 tail
             live_q = _LIVE_QUEUES.get(job_id)
             if live_q is not None:
                 while True:
-                    line = live_q.get()
-                    if line is None:
+                    item = live_q.get()
+                    if item is None:
                         cur = store.get(job_id) or {}
-                        yield (f"event: done\ndata: "
-                               f"{json.dumps({'exit_code': cur.get('exit_code'), 'status': cur.get('status')})}\n\n")
+                        yield (
+                            f"event: done\ndata: "
+                            f"{json.dumps({'exit_code': cur.get('exit_code'), 'status': cur.get('status')})}\n\n"
+                        )
                         return
-                    yield f"data: {json.dumps({'line': line}, ensure_ascii=False)}\n\n"
+                    kind, payload = item
+                    if kind == "stage":
+                        yield f"event: stage\ndata: {json.dumps({'stage': payload})}\n\n"
+                    else:
+                        yield f"data: {json.dumps({'line': payload}, ensure_ascii=False)}\n\n"
             else:
                 # 文件 tail 模式 (遗留 job 或外部进程写入)
                 log_path = store.log_path(job_id)
@@ -473,11 +548,17 @@ def create_app() -> Flask:
                             chunk = f.read()
                             pos = f.tell()
                         for line in chunk.splitlines():
+                            s = _detect_stage(line)
+                            if s and s > max_stage:
+                                max_stage = s
+                                yield f"event: stage\ndata: {json.dumps({'stage': s})}\n\n"
                             yield f"data: {json.dumps({'line': line}, ensure_ascii=False)}\n\n"
                     cur = store.get(job_id) or {}
                     if cur.get("status") != "running":
-                        yield (f"event: done\ndata: "
-                               f"{json.dumps({'exit_code': cur.get('exit_code'), 'status': cur.get('status')})}\n\n")
+                        yield (
+                            f"event: done\ndata: "
+                            f"{json.dumps({'exit_code': cur.get('exit_code'), 'status': cur.get('status')})}\n\n"
+                        )
                         return
                     time.sleep(1.5)
 
@@ -491,13 +572,97 @@ def create_app() -> Flask:
         return jsonify({"jobs": store.list_recent(limit=limit)})
 
     @app.route("/api/jobs/<job_id>")
-    def api_job(job_id):
+    def api_job(job_id: str):
         meta = store.get(job_id)
         if not meta:
             return jsonify({"error": "unknown job_id"}), 404
         return jsonify({"meta": meta, "log": store.read_log(job_id)})
 
+    # ── 本机文件 / 目录选择器 (tkinter 子进程) ─────────────────
+    @app.route("/api/pick-path", methods=["POST"])
+    def api_pick_path():
+        data = request.get_json() or {}
+        kind = data.get("kind", "folder")
+        if kind not in ("folder", "file"):
+            return jsonify({"error": "kind must be 'folder' or 'file'"}), 400
+        try:
+            path = _pick_path_subprocess(kind)
+        except FileNotFoundError as e:
+            return jsonify({"error": f"tkinter 不可用: {e}"}), 501
+        except subprocess.TimeoutExpired:
+            return jsonify({"error": "超时 (用户没选)", "path": ""}), 200
+        return jsonify({"path": path, "cancelled": not path})
+
+    # ── 远端文件 (kuake ls / rm) ──────────────────────────────
+    @app.route("/api/remote/ls")
+    def api_remote_ls():
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "kuake", "ls"],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return jsonify({"error": "kuake ls 超时 (30s)"}), 504
+        return jsonify({
+            "ok": result.returncode == 0,
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        })
+
+    @app.route("/api/remote/rm", methods=["POST"])
+    def api_remote_rm():
+        data = request.get_json() or {}
+        task = (data.get("task") or "").strip()
+        confirm = data.get("confirm", "")
+        if not task:
+            return jsonify({"error": "task required"}), 400
+        if confirm != "YES":
+            return jsonify({"error": "需要 confirm=='YES' 才能删"}), 403
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "kuake", "rm", task, "-y"],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            return jsonify({"error": "kuake rm 超时 (60s)"}), 504
+        return jsonify({
+            "ok": result.returncode == 0,
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        })
+
     return app
+
+
+def _pick_path_subprocess(kind: str) -> str:
+    """Spawn separate Python process to open tkinter dialog.
+
+    在 Flask 同进程开 tk dialog 在 Windows 上易卡死;子进程隔离 + topmost 比较稳。
+    Returns picked absolute path, 或 "" (用户取消)。
+    """
+    code = (
+        "import tkinter as tk\n"
+        "from tkinter import filedialog\n"
+        "import sys\n"
+        "root = tk.Tk()\n"
+        "root.withdraw()\n"
+        "root.attributes('-topmost', True)\n"
+        "if sys.argv[1] == 'folder':\n"
+        "    p = filedialog.askdirectory(title='kuake: 选目录')\n"
+        "else:\n"
+        "    p = filedialog.askopenfilename(title='kuake: 选文件')\n"
+        "sys.stdout.write(p or '')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, kind],
+        capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=600,
+    )
+    return result.stdout.strip()
 
 
 def _save_and_serialize(plan, *, prefix: str):

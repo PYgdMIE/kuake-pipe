@@ -305,3 +305,131 @@ def test_render_image_url_pytorch():
 def test_render_image_url_unknown_framework():
     from kuake.server import render_image_url
     assert render_image_url("Caffe", "1.0", "3.10", "11.0") == ""
+
+
+# ── stage detection ───────────────────────────────────────────
+
+def test_detect_stage_matches_bracket_n_of_4():
+    from kuake.server import _detect_stage
+    assert _detect_stage("· [1/4] 打包 /data -> data.zip") == 1
+    assert _detect_stage("· [2/4] 上传到夸克网盘") == 2
+    assert _detect_stage("· [3/4] 触发 AutoPanel 下载") == 3
+    assert _detect_stage("· [4/4] 服务器解压") == 4
+
+
+def test_detect_stage_none_for_unrelated_lines():
+    from kuake.server import _detect_stage
+    assert _detect_stage("✓ 完成") is None
+    assert _detect_stage("md5=abc123") is None
+    assert _detect_stage("") is None
+
+
+# ── /api/pick-path ────────────────────────────────────────────
+
+def test_pick_path_validates_kind(client):
+    r = client.post("/api/pick-path", json={"kind": "invalid"})
+    assert r.status_code == 400
+
+
+def test_pick_path_returns_picked(client):
+    with patch("kuake.server._pick_path_subprocess", return_value="C:/data/foo"):
+        r = client.post("/api/pick-path", json={"kind": "folder"})
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["path"] == "C:/data/foo"
+    assert data["cancelled"] is False
+
+
+def test_pick_path_cancelled_returns_empty(client):
+    with patch("kuake.server._pick_path_subprocess", return_value=""):
+        r = client.post("/api/pick-path", json={"kind": "folder"})
+    data = r.get_json()
+    assert data["path"] == ""
+    assert data["cancelled"] is True
+
+
+# ── /api/push-cancel ──────────────────────────────────────────
+
+def test_push_cancel_unknown_job_returns_404(client):
+    r = client.post("/api/push-cancel/nonexistent")
+    assert r.status_code == 404
+
+
+def test_push_cancel_terminates_process(client, kuake_home):
+    from kuake import server
+    from kuake.server import JobStore
+    store = JobStore(kuake_home)
+    jid = store.create("push", {"task": "t", "src": "/x"})
+
+    fake_proc = MagicMock()
+    fake_proc.wait.return_value = None
+    server._LIVE_PROCS[jid] = fake_proc
+    try:
+        r = client.post(f"/api/push-cancel/{jid}")
+        assert r.status_code == 200
+        fake_proc.terminate.assert_called_once()
+        assert store.get(jid)["status"] == "cancelled"
+        assert jid in server._CANCELLED
+    finally:
+        server._LIVE_PROCS.pop(jid, None)
+        server._CANCELLED.discard(jid)
+
+
+# ── /api/remote/ls + /api/remote/rm ───────────────────────────
+
+def test_remote_ls_returns_subprocess_output(client):
+    fake_result = MagicMock()
+    fake_result.returncode = 0
+    fake_result.stdout = "task1/\ntask2.zip\n"
+    fake_result.stderr = ""
+    with patch("kuake.server.subprocess.run", return_value=fake_result):
+        r = client.get("/api/remote/ls")
+    data = r.get_json()
+    assert data["ok"] is True
+    assert "task1" in data["stdout"]
+
+
+def test_remote_rm_requires_yes_confirm(client):
+    r = client.post("/api/remote/rm", json={"task": "t1", "confirm": "no"})
+    assert r.status_code == 403
+
+
+def test_remote_rm_with_yes_spawns_subprocess(client):
+    fake_result = MagicMock()
+    fake_result.returncode = 0
+    fake_result.stdout = "deleted"
+    fake_result.stderr = ""
+    with patch("kuake.server.subprocess.run", return_value=fake_result) as mock_run:
+        r = client.post("/api/remote/rm",
+                        json={"task": "t1", "confirm": "YES"})
+    assert r.status_code == 200
+    args = mock_run.call_args[0][0]
+    assert "rm" in args
+    assert "t1" in args
+
+
+def test_remote_rm_missing_task_returns_400(client):
+    r = client.post("/api/remote/rm", json={"confirm": "YES"})
+    assert r.status_code == 400
+
+
+# ── push-start with flags ─────────────────────────────────────
+
+def test_push_start_passes_no_unzip_and_keep_zip(client, tmp_path):
+    src = tmp_path / "data"
+    src.mkdir()
+    fake_popen = MagicMock()
+    fake_popen.pid = 12345
+    fake_popen.stdout = iter([])
+    fake_popen.returncode = 0
+    with patch("kuake.server.subprocess.Popen", return_value=fake_popen) as mock_popen:
+        r = client.post("/api/push-start",
+                        json={"task": "t1", "src": str(src),
+                              "no_unzip": True, "keep_zip": True})
+    assert r.status_code == 200
+    # 让 runner 线程跑完 (Popen mock 立即返回)
+    import time
+    time.sleep(0.1)
+    args = mock_popen.call_args[0][0]
+    assert "--no-unzip" in args
+    assert "--keep-zip" in args
