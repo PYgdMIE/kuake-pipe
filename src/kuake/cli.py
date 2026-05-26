@@ -34,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "脚本自动填表,无需在浏览器里手输")
     p_init.add_argument("--cloud-dir", default=None,
                         help="云端上传目录,默认 /kuake-uploads")
+    p_init.add_argument("--headless", action="store_true",
+                        help="浏览器无头模式 (要求 storage_state 已存在, CC/Codex/kuake auto 用)")
 
     p_push = sub.add_parser("push", help="上传 + 触发服务器解压")
     p_push.add_argument("task", help="任务名 (a-zA-Z0-9_-)")
@@ -231,7 +233,8 @@ def dispatch(args):
                  use_system_chrome=args.use_system_chrome,
                  instance_idx=args.instance,
                  autopanel_password=autopanel_pw,
-                 cloud_dir=args.cloud_dir)
+                 cloud_dir=args.cloud_dir,
+                 headless=args.headless)
     elif cmd == "push":
         from kuake.commands import push
         push.run(args.task, args.src, no_unzip=args.no_unzip, keep_zip=args.keep_zip)

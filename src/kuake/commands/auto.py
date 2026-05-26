@@ -169,11 +169,12 @@ def run(
             f"新实例 {new_uuid[:12]} 在 list_instances 里找不到 (状态异常?)"
         )
 
-    info(f"[4/5] kuake init --instance {new_idx} (浏览器会临时弹出抓 SSH/AutoPanel URL)")
+    info(f"[4/5] kuake init --instance {new_idx} --headless (无头抓 SSH/AutoPanel URL)")
     init_args = [
         sys.executable, "-m", "kuake", "init",
         "--instance", str(new_idx),
         "--no-smoke",
+        "--headless",  # storage_state 必须已经存在
     ]
     if cloud_dir:
         init_args.extend(["--cloud-dir", cloud_dir])

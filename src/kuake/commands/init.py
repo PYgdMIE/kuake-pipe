@@ -68,7 +68,8 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
         use_system_chrome: bool = False,
         instance_idx: int | None = None,
         autopanel_password: str | None = None,
-        cloud_dir: str | None = None) -> None:
+        cloud_dir: str | None = None,
+        headless: bool = False) -> None:
     paths = config_paths()
     paths.home.mkdir(parents=True, exist_ok=True)
     paths.state_dir.mkdir(parents=True, exist_ok=True)
@@ -77,6 +78,15 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
         lock_ctx = FileLock(paths.lock_file)
     except LockBusy as e:
         raise ConcurrencyLock() from e
+
+    # --headless 要求 storage_state.json 已存在 + 有 AutoDL JWT 和 Quark cookie。
+    # 否则 init 会进入扫码流程 — headless 模式下扫码无法完成, 会卡死。
+    if headless:
+        if not paths.storage_state.exists():
+            raise UserInputError(
+                "--headless 要求已有 storage_state (即至少完整跑过一次 `kuake init`)。"
+                "首次配置请去掉 --headless 让浏览器可见以便扫码。"
+            )
 
     with lock_ctx:
         # 1. ensure chromium
@@ -89,10 +99,12 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
 
         if use_system_chrome:
             info("启动系统 Chrome (使用你已登录的 profile,Chrome 必须先关闭)...")
+        elif headless:
+            info("启动浏览器(headless 模式 — 已有 storage_state, 无需扫码)...")
         else:
             info("启动浏览器(可见模式)...")
         with launch_browser(
-            headless=False,
+            headless=headless,
             storage_state=paths.storage_state,
             use_system_chrome=use_system_chrome,
         ) as (ctx, _p):

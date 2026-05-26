@@ -12,9 +12,10 @@
   POST /api/clone-plan {source, ...}  生成 clone PLAN
   POST /api/confirm-create {plan, yes}必须 yes=='YES', 真下单
   POST /api/push-start {task, src, no_unzip?, keep_zip?}  spawn `kuake push`
-  POST /api/push-cancel/<job_id>      终止运行中的 push 子进程
-  GET  /api/push-stream/<job_id>      SSE: line/stage/done 三种事件
-  GET  /api/jobs                      列最近 N 个 push job (从 ~/.kuake/jobs/ 读)
+  POST /api/auto-start {full auto chain params}           spawn `kuake auto`
+  POST /api/push-cancel/<job_id>      终止运行中的子进程 (push / auto 都用)
+  GET  /api/push-stream/<job_id>      SSE: line/stage/done (stage 含 total)
+  GET  /api/jobs                      列最近 N 个 job (从 ~/.kuake/jobs/ 读)
   GET  /api/jobs/<job_id>             单 job 详情 + 完整 log
   POST /api/pick-path {kind}          后端 tkinter 弹文件/目录选择 → 返回绝对路径
   GET  /api/remote/ls                 spawn `kuake ls` 列远端 tasks
@@ -56,13 +57,13 @@ _LIVE_PROCS: dict[str, subprocess.Popen] = {}
 # 标记 job 是否被用户主动 cancel, runner 在 wait() 后据此判断是否覆盖状态
 _CANCELLED: set[str] = set()
 
-_STAGE_RE = re.compile(r"\[(\d)/4\]")
+_STAGE_RE = re.compile(r"\[(\d)/(\d)\]")
 
 
-def _detect_stage(line: str) -> int | None:
-    """从日志行抽取 [N/4] 阶段号, 没有就返回 None."""
+def _detect_stage(line: str) -> tuple[int, int] | None:
+    """从日志行抽取 [N/T] 阶段号 + 总数 (push 是 N/4, auto 是 N/5)。"""
     m = _STAGE_RE.search(line)
-    return int(m.group(1)) if m else None
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 # ── 镜像目录 (来自 AutoDL Web UI 选择器观察) ─────────────────────
@@ -424,53 +425,74 @@ def create_app() -> Flask:
         if not Path(src).exists():
             return jsonify({"error": f"src 不存在: {src}"}), 404
 
-        job_id = store.create("push", {
+        args = [sys.executable, "-m", "kuake", "push", task, src]
+        if no_unzip:
+            args.append("--no-unzip")
+        if keep_zip:
+            args.append("--keep-zip")
+
+        job_id = _spawn_job(store, kind="push", meta={
             "task": task, "src": src,
             "no_unzip": no_unzip, "keep_zip": keep_zip,
-        })
-        log_q: queue.Queue = queue.Queue()
-        _LIVE_QUEUES[job_id] = log_q
+        }, args=args)
+        return jsonify({"job_id": job_id})
 
-        def runner() -> None:
-            log_path = store.log_path(job_id)
-            args = [sys.executable, "-m", "kuake", "push", task, src]
-            if no_unzip:
-                args.append("--no-unzip")
-            if keep_zip:
-                args.append("--keep-zip")
-            proc = subprocess.Popen(
-                args,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace",
-            )
-            _LIVE_PROCS[job_id] = proc
-            store.update(job_id, pid=proc.pid)
-            with open(log_path, "a", encoding="utf-8") as logf:
-                for line in proc.stdout or []:
-                    logf.write(line)
-                    logf.flush()
-                    stripped = line.rstrip("\r\n")
-                    stage = _detect_stage(stripped)
-                    if stage is not None:
-                        log_q.put(("stage", stage))
-                    log_q.put(("line", stripped))
-            proc.wait()
-            _LIVE_PROCS.pop(job_id, None)
-            # 若已被主动 cancel, 不要覆盖状态 (仍记录 exit_code)
-            if job_id in _CANCELLED:
-                _CANCELLED.discard(job_id)
-                store.update(job_id, exit_code=proc.returncode)
-            else:
-                store.update(
-                    job_id,
-                    status="completed" if proc.returncode == 0 else "failed",
-                    exit_code=proc.returncode,
-                    finished_at=datetime.now().isoformat(timespec="seconds"),
-                )
-            log_q.put(None)
-            _LIVE_QUEUES.pop(job_id, None)
+    @app.route("/api/auto-start", methods=["POST"])
+    def api_auto_start():
+        data = request.get_json() or {}
+        autopanel_password = (data.get("autopanel_password") or "").strip()
+        if not autopanel_password:
+            return jsonify({"error": "autopanel_password required"}), 400
+        stop_after = data.get("stop_after", "push")
+        if stop_after not in ("create", "ready", "init", "push"):
+            return jsonify({"error": f"stop_after 必须 create/ready/init/push, got {stop_after!r}"}), 400
+        if stop_after == "push":
+            if not data.get("task") or not data.get("src"):
+                return jsonify({"error": "stop_after=push 时 task + src 必填"}), 400
+            if not Path(data["src"]).exists():
+                return jsonify({"error": f"src 不存在: {data['src']}"}), 404
 
-        threading.Thread(target=runner, daemon=True).start()
+        args = [sys.executable, "-m", "kuake", "auto"]
+        for g in (data.get("gpu") or []):
+            args.extend(["--gpu", g])
+        for r in (data.get("region") or []):
+            args.extend(["--region", r])
+        if data.get("cpu_ok"):
+            args.append("--cpu-ok")
+        args.extend(["--min-idle", str(data.get("min_idle", 1))])
+        args.extend(["--gpu-count", str(data.get("gpu_count", 1))])
+        args.extend(["--expand-data-disk", str(data.get("expand_data_disk_gb", 0))])
+        args.extend(["--system-disk-expand", str(data.get("system_disk_change_size_gb", 0))])
+        if data.get("image"):
+            args.extend(["--image", data["image"]])
+        args.extend(["--poll", str(data.get("poll", 5))])
+        args.extend(["--max-market-iter", str(data.get("max_market_iter", 0))])
+        args.extend(["--ready-timeout", str(data.get("ready_timeout", 600))])
+        args.extend(["--autopanel-password", autopanel_password])
+        if data.get("cloud_dir"):
+            args.extend(["--cloud-dir", data["cloud_dir"]])
+        if data.get("task"):
+            args.extend(["--task", data["task"]])
+        if data.get("src"):
+            args.extend(["--src", data["src"]])
+        if data.get("no_unzip"):
+            args.append("--no-unzip")
+        if data.get("keep_zip"):
+            args.append("--keep-zip")
+        args.extend(["--stop-after", stop_after])
+
+        # 密码也用 env 兜底, 子进程的 kuake init 会 fallback 读 env
+        extra_env = {"KUAKE_AUTOPANEL_PASSWORD": autopanel_password}
+
+        job_id = _spawn_job(store, kind="auto", meta={
+            "task": data.get("task") or "—",
+            "src": data.get("src") or "—",
+            "gpu": data.get("gpu") or [],
+            "stop_after": stop_after,
+            "no_unzip": bool(data.get("no_unzip")),
+            "keep_zip": bool(data.get("keep_zip")),
+            # 密码不进 meta 避免泄露到日志/磁盘
+        }, args=args, extra_env=extra_env)
         return jsonify({"job_id": job_id})
 
     @app.route("/api/push-cancel/<job_id>", methods=["POST"])
@@ -506,9 +528,10 @@ def create_app() -> Flask:
             max_stage = 0
             for line in existing.splitlines():
                 s = _detect_stage(line)
-                if s and s > max_stage:
-                    max_stage = s
-                    yield f"event: stage\ndata: {json.dumps({'stage': s})}\n\n"
+                if s and s[0] > max_stage:
+                    max_stage = s[0]
+                    yield (f"event: stage\ndata: "
+                           f"{json.dumps({'stage': s[0], 'total': s[1]})}\n\n")
                 yield f"data: {json.dumps({'line': line}, ensure_ascii=False)}\n\n"
 
             # 2) 如果 job 已结束, 直接 done
@@ -534,7 +557,9 @@ def create_app() -> Flask:
                         return
                     kind, payload = item
                     if kind == "stage":
-                        yield f"event: stage\ndata: {json.dumps({'stage': payload})}\n\n"
+                        n, total = payload
+                        yield (f"event: stage\ndata: "
+                               f"{json.dumps({'stage': n, 'total': total})}\n\n")
                     else:
                         yield f"data: {json.dumps({'line': payload}, ensure_ascii=False)}\n\n"
             else:
@@ -549,9 +574,10 @@ def create_app() -> Flask:
                             pos = f.tell()
                         for line in chunk.splitlines():
                             s = _detect_stage(line)
-                            if s and s > max_stage:
-                                max_stage = s
-                                yield f"event: stage\ndata: {json.dumps({'stage': s})}\n\n"
+                            if s and s[0] > max_stage:
+                                max_stage = s[0]
+                                yield (f"event: stage\ndata: "
+                                       f"{json.dumps({'stage': s[0], 'total': s[1]})}\n\n")
                             yield f"data: {json.dumps({'line': line}, ensure_ascii=False)}\n\n"
                     cur = store.get(job_id) or {}
                     if cur.get("status") != "running":
@@ -636,6 +662,63 @@ def create_app() -> Flask:
         })
 
     return app
+
+
+def _spawn_job(
+    store: JobStore,
+    *,
+    kind: str,
+    meta: dict,
+    args: list[str],
+    extra_env: dict[str, str] | None = None,
+) -> str:
+    """Common: create job, spawn subprocess, stream stdout → log + queue, update status on exit.
+
+    push 和 auto 共享同一套流程, 仅 args / kind / meta 不同。
+    Returns: job_id.
+    """
+    job_id = store.create(kind, meta)
+    log_q: queue.Queue = queue.Queue()
+    _LIVE_QUEUES[job_id] = log_q
+
+    def runner() -> None:
+        log_path = store.log_path(job_id)
+        env = os.environ.copy()
+        if extra_env:
+            env.update(extra_env)
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", env=env,
+        )
+        _LIVE_PROCS[job_id] = proc
+        store.update(job_id, pid=proc.pid)
+        with open(log_path, "a", encoding="utf-8") as logf:
+            for line in proc.stdout or []:
+                logf.write(line)
+                logf.flush()
+                stripped = line.rstrip("\r\n")
+                stage = _detect_stage(stripped)
+                if stage is not None:
+                    log_q.put(("stage", stage))
+                log_q.put(("line", stripped))
+        proc.wait()
+        _LIVE_PROCS.pop(job_id, None)
+        if job_id in _CANCELLED:
+            _CANCELLED.discard(job_id)
+            store.update(job_id, exit_code=proc.returncode)
+        else:
+            store.update(
+                job_id,
+                status="completed" if proc.returncode == 0 else "failed",
+                exit_code=proc.returncode,
+                finished_at=datetime.now().isoformat(timespec="seconds"),
+            )
+        log_q.put(None)
+        _LIVE_QUEUES.pop(job_id, None)
+
+    threading.Thread(target=runner, daemon=True).start()
+    return job_id
 
 
 def _pick_path_subprocess(kind: str) -> str:

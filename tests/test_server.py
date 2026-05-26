@@ -309,12 +309,18 @@ def test_render_image_url_unknown_framework():
 
 # ── stage detection ───────────────────────────────────────────
 
-def test_detect_stage_matches_bracket_n_of_4():
+def test_detect_stage_matches_push_bracket_n_of_4():
     from kuake.server import _detect_stage
-    assert _detect_stage("· [1/4] 打包 /data -> data.zip") == 1
-    assert _detect_stage("· [2/4] 上传到夸克网盘") == 2
-    assert _detect_stage("· [3/4] 触发 AutoPanel 下载") == 3
-    assert _detect_stage("· [4/4] 服务器解压") == 4
+    assert _detect_stage("· [1/4] 打包 /data -> data.zip") == (1, 4)
+    assert _detect_stage("· [2/4] 上传到夸克网盘") == (2, 4)
+    assert _detect_stage("· [3/4] 触发 AutoPanel 下载") == (3, 4)
+    assert _detect_stage("· [4/4] 服务器解压") == (4, 4)
+
+
+def test_detect_stage_matches_auto_bracket_n_of_5():
+    from kuake.server import _detect_stage
+    assert _detect_stage("· [1/5] 轮询市场") == (1, 5)
+    assert _detect_stage("· [5/5] kuake push") == (5, 5)
 
 
 def test_detect_stage_none_for_unrelated_lines():
@@ -411,6 +417,55 @@ def test_remote_rm_with_yes_spawns_subprocess(client):
 def test_remote_rm_missing_task_returns_400(client):
     r = client.post("/api/remote/rm", json={"confirm": "YES"})
     assert r.status_code == 400
+
+
+# ── /api/auto-start ───────────────────────────────────────────
+
+def test_auto_start_requires_autopanel_password(client):
+    r = client.post("/api/auto-start", json={"task": "t", "src": "/"})
+    assert r.status_code == 400
+    assert "autopanel_password" in r.get_json()["error"]
+
+
+def test_auto_start_validates_stop_after(client):
+    r = client.post("/api/auto-start",
+                    json={"autopanel_password": "x", "stop_after": "bogus"})
+    assert r.status_code == 400
+
+
+def test_auto_start_push_needs_task_and_src(client):
+    r = client.post("/api/auto-start",
+                    json={"autopanel_password": "x", "stop_after": "push"})
+    assert r.status_code == 400
+    assert "task" in r.get_json()["error"]
+
+
+def test_auto_start_with_create_stop_after_returns_job_id(client, tmp_path):
+    """stop_after=create 不需要 task/src, 验证 spawn 成功。"""
+    fake_popen = MagicMock()
+    fake_popen.pid = 999
+    fake_popen.stdout = iter([])
+    fake_popen.returncode = 0
+    with patch("kuake.server.subprocess.Popen", return_value=fake_popen) as mock_popen:
+        r = client.post("/api/auto-start",
+                        json={"autopanel_password": "secret",
+                              "stop_after": "create",
+                              "gpu": ["RTX 3080 Ti"],
+                              "min_idle": 1, "gpu_count": 1,
+                              "expand_data_disk_gb": 50})
+    assert r.status_code == 200
+    assert "job_id" in r.get_json()
+    import time
+    time.sleep(0.1)
+    args = mock_popen.call_args[0][0]
+    assert "auto" in args
+    assert "--gpu" in args and "RTX 3080 Ti" in args
+    assert "--stop-after" in args and "create" in args
+    assert "--expand-data-disk" in args and "50" in args
+    # 密码通过 args + env 都给
+    assert "--autopanel-password" in args
+    env = mock_popen.call_args.kwargs.get("env", {})
+    assert env.get("KUAKE_AUTOPANEL_PASSWORD") == "secret"
 
 
 # ── push-start with flags ─────────────────────────────────────

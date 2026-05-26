@@ -227,11 +227,12 @@
   .status-pill.interrupted { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
   .status-pill.cancelled { background: rgba(141, 148, 163, 0.15); color: var(--dim); }
 
-  /* ── 4 阶段进度条 ── */
+  /* ── 4/5 阶段进度条 ── */
   .stage-bar {
     position: relative; display: grid; grid-template-columns: repeat(4, 1fr);
     margin: 6px 18px 22px; padding: 0 24px;
   }
+  .stage-bar.stage-bar-5 { grid-template-columns: repeat(5, 1fr); }
   .stage { display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; z-index: 2; }
   .stage .dot {
     width: 32px; height: 32px; border-radius: 50%;
@@ -314,6 +315,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="grab">抢卡</button>
     <button class="tab" data-tab="push">上传</button>
+    <button class="tab" data-tab="auto">全自动</button>
   </div>
 </header>
 
@@ -525,6 +527,146 @@
     <div id="remote-content" style="padding: 14px 18px; font-family: var(--mono); font-size: 12px; color: var(--dim); white-space: pre-wrap;">
       点 刷新 列远端文件 (kuake ls)
     </div>
+  </div>
+</section>
+
+</div>
+
+<!-- ════════════ 全自动 ════════════ -->
+<div class="pane" data-pane="auto">
+
+<aside class="filters">
+  <h3>GPU / 区域</h3>
+  <div class="group">
+    <label>GPU 型号</label>
+    <select id="auto-gpu">
+      <option value="">所有</option>
+      <option value="TITAN Xp">TITAN Xp</option>
+      <option value="RTX 2080 Ti">RTX 2080 Ti</option>
+      <option value="RTX 3080 Ti" selected>RTX 3080 Ti</option>
+      <option value="RTX 4090">RTX 4090</option>
+      <option value="RTX 4090D">RTX 4090D</option>
+      <option value="RTX 5090">RTX 5090</option>
+      <option value="RTX PRO 6000">RTX PRO 6000</option>
+      <option value="vGPU-32GB">vGPU-32GB</option>
+      <option value="vGPU-48GB">vGPU-48GB</option>
+    </select>
+  </div>
+  <div class="group">
+    <label>市场最多轮询次数 (0=无限)</label>
+    <input type="number" id="auto-max-iter" value="100" min="0" />
+    <div class="help">每次间隔 5s, 0 = 一直等到匹配</div>
+  </div>
+
+  <h3 style="margin-top: 24px;">实例创建</h3>
+  <div class="group">
+    <label>卡数</label>
+    <input type="number" id="auto-gpu-count" value="1" min="1" max="8" />
+  </div>
+  <div class="group">
+    <label>数据盘扩容 (GB)</label>
+    <input type="number" id="auto-ddisk" value="0" min="0" max="2000" step="50" />
+  </div>
+  <div class="group">
+    <label>系统盘扩容 (GB)</label>
+    <input type="number" id="auto-sdisk" value="0" min="0" max="100" step="10" />
+  </div>
+  <div class="group">
+    <label>镜像 URL (留空走默认)</label>
+    <input type="text" id="auto-image" placeholder="hub.kce.ksyun.com/..." />
+  </div>
+  <div class="group">
+    <label>等机器 ready 超时 (秒)</label>
+    <input type="number" id="auto-ready-timeout" value="600" min="60" max="1800" />
+  </div>
+
+  <h3 style="margin-top: 24px;">认证</h3>
+  <div class="group">
+    <label>AutoPanel 独立密码</label>
+    <input type="password" id="auto-autopanel-pw" placeholder="必填 (init 用)" />
+    <div class="help">仅本地用,不落盘</div>
+  </div>
+  <div class="group">
+    <label>云端目录</label>
+    <input type="text" id="auto-cloud-dir" placeholder="/kuake-uploads (默认)" />
+  </div>
+
+  <h3 style="margin-top: 24px;">推送 (stop=push 时必填)</h3>
+  <div class="group">
+    <label>任务名</label>
+    <input type="text" id="auto-task" placeholder="my-experiment-001" />
+  </div>
+  <div class="group">
+    <label>本地路径 (绝对)</label>
+    <input type="text" id="auto-src" placeholder="C:\Users\me\data" />
+    <div class="picker-row">
+      <button class="btn ghost sm" id="auto-pick-folder">选目录</button>
+      <button class="btn ghost sm" id="auto-pick-file">选文件</button>
+    </div>
+  </div>
+  <div class="group">
+    <label class="toggle"><input type="checkbox" id="auto-no-unzip" /><span>--no-unzip</span></label>
+  </div>
+  <div class="group">
+    <label class="toggle"><input type="checkbox" id="auto-keep-zip" /><span>--keep-zip</span></label>
+  </div>
+
+  <h3 style="margin-top: 24px;">停点 / 启动</h3>
+  <div class="group">
+    <label>跑到哪一步停</label>
+    <select id="auto-stop-after">
+      <option value="create">create (下单就停)</option>
+      <option value="ready">ready (等机器就绪)</option>
+      <option value="init">init (配好凭据)</option>
+      <option value="push" selected>push (完整跑完)</option>
+    </select>
+  </div>
+  <div class="group">
+    <button class="btn" id="auto-start" disabled>启动全自动</button>
+    <button class="btn danger" id="auto-cancel" style="display: none; margin-top: 8px;">取消运行中</button>
+  </div>
+</aside>
+
+<section class="content">
+  <div class="statusbar">
+    <div class="pulse" id="auto-pulse"></div>
+    <div id="auto-status">无活跃任务</div>
+    <div class="right" id="auto-job-id"></div>
+  </div>
+
+  <!-- 5 阶段进度条 -->
+  <div class="stage-bar stage-bar-5" id="auto-stage-bar">
+    <div class="stage" data-stage="1">
+      <div class="dot">1</div><div class="label">轮询市场</div>
+    </div>
+    <div class="stage" data-stage="2">
+      <div class="dot">2</div><div class="label">下单</div>
+    </div>
+    <div class="stage" data-stage="3">
+      <div class="dot">3</div><div class="label">等就绪</div>
+    </div>
+    <div class="stage" data-stage="4">
+      <div class="dot">4</div><div class="label">配凭据 (init)</div>
+    </div>
+    <div class="stage" data-stage="5">
+      <div class="dot">5</div><div class="label">推送 (push)</div>
+    </div>
+    <div class="stage-line"><div class="stage-line-fill"></div></div>
+  </div>
+
+  <div class="log" id="auto-log">[启动后日志会出现在这里]</div>
+
+  <div style="margin-top: 18px; padding: 14px 18px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; color: var(--dim); line-height: 1.7;">
+    <strong style="color: var(--text);">⚠ 全自动会真扣费</strong>:抢到机器后立刻下单 (3s grace),按时计费起。
+    <br>
+    <strong style="color: var(--text);">前置条件</strong>:你已经完整跑过一次 <code>kuake init</code>,
+    <code>~/.kuake/state/storage_state.json</code> 里有 AutoDL JWT + Quark cookie。
+    <br>
+    <strong style="color: var(--text);">stop 选择</strong>:
+    <code>create</code> 仅下单 ·
+    <code>ready</code> 等机器开机 ·
+    <code>init</code> 配好凭据 ·
+    <code>push</code> 完整端到端
   </div>
 </section>
 
@@ -1040,25 +1182,35 @@ async function pickPath(kind) {
 document.getElementById('pick-folder').addEventListener('click', () => pickPath('folder'));
 document.getElementById('pick-file').addEventListener('click', () => pickPath('file'));
 
-// 阶段进度条 — 1..4 控制 active/done 状态
-function setStage(n) {
-  const stages = document.querySelectorAll('.stage[data-stage]');
+// 阶段进度条 — push 4 段 / auto 5 段, 按 container 区分
+function setStage(container, n, total) {
+  const stages = container.querySelectorAll('.stage[data-stage]');
+  total = total || stages.length;
   stages.forEach(el => {
     const s = parseInt(el.dataset.stage, 10);
     el.classList.toggle('done', s < n);
     el.classList.toggle('active', s === n);
   });
-  const fill = document.getElementById('stage-line-fill');
-  // 4 阶段中点连线: stage 1 0%, stage 2 33%, stage 3 67%, stage 4 100%
-  const pct = n <= 0 ? 0 : Math.min(100, (n - 1) / 3 * 100);
+  const fill = container.querySelector('.stage-line-fill');
+  if (!fill) return;
+  const pct = n <= 0 ? 0 : Math.min(100, (n - 1) / (total - 1) * 100);
   fill.style.width = pct + '%';
 }
-function resetStage() {
-  document.querySelectorAll('.stage[data-stage]').forEach(el => {
+function resetStage(container) {
+  container.querySelectorAll('.stage[data-stage]').forEach(el => {
     el.classList.remove('done', 'active');
   });
-  document.getElementById('stage-line-fill').style.width = '0%';
+  const fill = container.querySelector('.stage-line-fill');
+  if (fill) fill.style.width = '0%';
 }
+function markAllStagesDone(container) {
+  container.querySelectorAll('.stage[data-stage]').forEach(el => {
+    el.classList.remove('active'); el.classList.add('done');
+  });
+  const fill = container.querySelector('.stage-line-fill');
+  if (fill) fill.style.width = '100%';
+}
+const PUSH_STAGE_BAR = document.getElementById('stage-bar');
 
 // 启动上传
 pushBtn.addEventListener('click', async () => {
@@ -1074,7 +1226,7 @@ pushBtn.addEventListener('click', async () => {
     if (!r.ok) throw new Error(data.error || '启动失败');
     localStorage.setItem('kuake_active_job', data.job_id);
     document.getElementById('push-log').innerHTML = '';
-    resetStage();
+    resetStage(PUSH_STAGE_BAR);
     streamPushLog(data.job_id);
     refreshJobs();
   } catch (e) { toast(e.message, 'error'); }
@@ -1123,7 +1275,7 @@ function streamPushLog(jobId) {
   es.addEventListener('stage', ev => {
     try {
       const d = JSON.parse(ev.data);
-      if (d.stage) setStage(d.stage);
+      if (d.stage) setStage(PUSH_STAGE_BAR, d.stage, d.total || 4);
     } catch (e) {}
   });
   es.addEventListener('done', ev => {
@@ -1134,13 +1286,7 @@ function streamPushLog(jobId) {
     document.getElementById('push-pulse').classList.remove('live');
     const ok = d.exit_code === 0 || d.status === 'completed';
     const cancelled = d.status === 'cancelled';
-    if (ok) {
-      // 标记 4 阶段全 done
-      document.querySelectorAll('.stage[data-stage]').forEach(el => {
-        el.classList.remove('active'); el.classList.add('done');
-      });
-      document.getElementById('stage-line-fill').style.width = '100%';
-    }
+    if (ok) markAllStagesDone(PUSH_STAGE_BAR);
     document.getElementById('push-status').textContent =
       ok ? '✓ 完成' :
       cancelled ? '⊘ 已取消' :
@@ -1190,7 +1336,7 @@ function renderJobs(jobs) {
   tb.querySelectorAll('button[data-jid-attach]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.getElementById('push-log').innerHTML = '';
-      resetStage();
+      resetStage(PUSH_STAGE_BAR);
       streamPushLog(btn.dataset.jidAttach);
     });
   });
@@ -1262,6 +1408,162 @@ async function deleteRemote(task) {
   } catch (e) { toast(e.message, 'error'); }
 }
 document.getElementById('refresh-remote').addEventListener('click', refreshRemote);
+
+// ───────── 全自动 tab (kuake auto chain) ─────────
+const AUTO_STAGE_BAR = document.getElementById('auto-stage-bar');
+const autoStartBtn = document.getElementById('auto-start');
+const autoCancelBtn = document.getElementById('auto-cancel');
+const autoPwEl = document.getElementById('auto-autopanel-pw');
+const autoTaskEl = document.getElementById('auto-task');
+const autoSrcEl = document.getElementById('auto-src');
+const autoStopAfterEl = document.getElementById('auto-stop-after');
+let autoCurrentJob = null;
+let autoStream = null;
+
+function validateAutoForm() {
+  const pw = autoPwEl.value.trim();
+  const stopAfter = autoStopAfterEl.value;
+  let ok = !!pw;
+  if (stopAfter === 'push') ok = ok && autoTaskEl.value.trim() && autoSrcEl.value.trim();
+  autoStartBtn.disabled = !ok;
+}
+['input', 'change'].forEach(evt => {
+  [autoPwEl, autoTaskEl, autoSrcEl, autoStopAfterEl].forEach(el =>
+    el.addEventListener(evt, validateAutoForm));
+});
+
+document.getElementById('auto-pick-folder').addEventListener('click', async () => {
+  try {
+    const r = await fetch('/api/pick-path', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({kind: 'folder'}),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || '选择失败');
+    if (data.cancelled) { toast('已取消'); return; }
+    autoSrcEl.value = data.path;
+    validateAutoForm();
+  } catch (e) { toast(e.message, 'error'); }
+});
+document.getElementById('auto-pick-file').addEventListener('click', async () => {
+  try {
+    const r = await fetch('/api/pick-path', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({kind: 'file'}),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || '选择失败');
+    if (data.cancelled) { toast('已取消'); return; }
+    autoSrcEl.value = data.path;
+    validateAutoForm();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+autoStartBtn.addEventListener('click', async () => {
+  const stopAfter = autoStopAfterEl.value;
+  const body = {
+    autopanel_password: autoPwEl.value.trim(),
+    stop_after: stopAfter,
+    gpu: document.getElementById('auto-gpu').value ?
+         [document.getElementById('auto-gpu').value] : [],
+    gpu_count: parseInt(document.getElementById('auto-gpu-count').value, 10),
+    expand_data_disk_gb: parseInt(document.getElementById('auto-ddisk').value, 10),
+    system_disk_change_size_gb: parseInt(document.getElementById('auto-sdisk').value, 10),
+    image: document.getElementById('auto-image').value.trim(),
+    max_market_iter: parseInt(document.getElementById('auto-max-iter').value, 10),
+    ready_timeout: parseInt(document.getElementById('auto-ready-timeout').value, 10),
+    cloud_dir: document.getElementById('auto-cloud-dir').value.trim() || null,
+    task: autoTaskEl.value.trim() || null,
+    src: autoSrcEl.value.trim() || null,
+    no_unzip: document.getElementById('auto-no-unzip').checked,
+    keep_zip: document.getElementById('auto-keep-zip').checked,
+  };
+  const warning = `⚠ 这会真扣费 (3s grace 后自动下单 → 按时计费):\n` +
+                  `  GPU: ${body.gpu[0] || '(任意)'} × ${body.gpu_count}\n` +
+                  `  Stop after: ${stopAfter}\n` +
+                  `继续?`;
+  if (!confirm(warning)) return;
+  try {
+    const r = await fetch('/api/auto-start', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || '启动失败');
+    document.getElementById('auto-log').innerHTML = '';
+    resetStage(AUTO_STAGE_BAR);
+    streamAutoLog(data.job_id);
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+autoCancelBtn.addEventListener('click', async () => {
+  if (!autoCurrentJob) return;
+  if (!confirm('确定取消运行中的 auto chain?子进程会被强制终止 (机器已下单的话不会自动退,要去 AutoDL 控制台关机)。')) return;
+  try {
+    const r = await fetch(`/api/push-cancel/${autoCurrentJob}`, {method: 'POST'});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || '取消失败');
+    toast('已发送终止信号');
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+function streamAutoLog(jobId) {
+  if (autoStream) autoStream.close();
+  autoCurrentJob = jobId;
+  const logEl = document.getElementById('auto-log');
+  document.getElementById('auto-pulse').classList.add('live');
+  document.getElementById('auto-status').textContent = '运行中';
+  document.getElementById('auto-job-id').textContent = 'job ' + jobId;
+  autoStartBtn.disabled = true;
+  autoCancelBtn.style.display = 'block';
+
+  const es = new EventSource(`/api/push-stream/${jobId}`);
+  autoStream = es;
+
+  es.onmessage = ev => {
+    try {
+      const d = JSON.parse(ev.data);
+      const line = d.line || '';
+      const cls = line.includes('✓') ? 'ok' :
+                  line.includes('✗') ? 'err' :
+                  line.includes('⚠') ? 'warn' :
+                  line.startsWith('·') ? 'dim' : '';
+      const span = document.createElement('span');
+      if (cls) span.className = cls;
+      span.textContent = line + '\n';
+      logEl.appendChild(span);
+      logEl.scrollTop = logEl.scrollHeight;
+    } catch (e) {}
+  };
+  es.addEventListener('stage', ev => {
+    try {
+      const d = JSON.parse(ev.data);
+      if (d.stage) setStage(AUTO_STAGE_BAR, d.stage, d.total || 5);
+    } catch (e) {}
+  });
+  es.addEventListener('done', ev => {
+    es.close(); autoStream = null;
+    autoCurrentJob = null;
+    autoCancelBtn.style.display = 'none';
+    let d = {}; try { d = JSON.parse(ev.data); } catch (e) {}
+    document.getElementById('auto-pulse').classList.remove('live');
+    const ok = d.exit_code === 0 || d.status === 'completed';
+    const cancelled = d.status === 'cancelled';
+    if (ok) markAllStagesDone(AUTO_STAGE_BAR);
+    document.getElementById('auto-status').textContent =
+      ok ? '✓ 全链完成' :
+      cancelled ? '⊘ 已取消' :
+      `✗ ${d.status || 'failed'} (退出码 ${d.exit_code})`;
+    autoStartBtn.disabled = false;
+    validateAutoForm();
+    notify(ok ? 'kuake auto 完成' : cancelled ? 'kuake auto 已取消' : 'kuake auto 失败',
+           `${autoTaskEl.value || ''} ${ok ? '成功' : cancelled ? '取消' : '退出码 ' + d.exit_code}`);
+    toast(ok ? 'auto 全链完成' : cancelled ? '已取消' : 'auto 失败',
+          ok ? 'success' : cancelled ? 'info' : 'error');
+  });
+  es.onerror = () => { /* browser reconnects */ };
+}
+validateAutoForm();
 
 // ───────── 启动: 加载市场 + 镜像目录 + 自动恢复活跃 job ─────────
 (async function init() {
