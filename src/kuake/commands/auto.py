@@ -17,6 +17,7 @@ Usage:
 """
 from __future__ import annotations
 
+import json as _json
 import os
 import subprocess
 import sys
@@ -28,7 +29,7 @@ from kuake.autodl_planner import plan_from_match, save_plan
 from kuake.commands import confirm_create
 from kuake.config import config_paths
 from kuake.errors import ConfigMissing, NetworkError, UserInputError
-from kuake.progress import console, info, ok, warn
+from kuake.progress import console, info, ok, set_json_mode, warn
 
 _STOP_POINTS = ("create", "ready", "init", "push")
 
@@ -53,8 +54,89 @@ def run(
     no_unzip: bool = False,
     keep_zip: bool = False,
     stop_after: str = "push",
+    json_output: bool = False,
+    fail_rollback: bool = False,
 ) -> None:
-    """Chain: grab → create → wait → init → push, stop at `stop_after`."""
+    """Chain: grab → create → wait → init → push, stop at `stop_after`.
+
+    fail_rollback: 链中任一阶段失败 (在 created 之后) → 自动 kuake stop <new_uuid>
+    防止扣费。仅 stop, 不 release (避免误删数据)。
+    """
+    if json_output:
+        set_json_mode(True)
+    state: dict = {
+        "stage_reached": None,
+        "new_uuid": None,
+        "plan_file": None,
+        "stop_after": stop_after,
+        "rollback_attempted": False,
+        "rollback_ok": None,
+    }
+    try:
+        _run_chain(
+            state=state,
+            gpu_types=gpu_types, regions=regions, cpu_ok=cpu_ok,
+            min_idle_gpu=min_idle_gpu, gpu_count=gpu_count,
+            expand_data_disk_gb=expand_data_disk_gb,
+            system_disk_change_size_gb=system_disk_change_size_gb,
+            image=image, poll_seconds=poll_seconds,
+            max_market_iters=max_market_iters, ready_timeout=ready_timeout,
+            autopanel_password=autopanel_password, cloud_dir=cloud_dir,
+            task=task, src=src, no_unzip=no_unzip, keep_zip=keep_zip,
+            stop_after=stop_after,
+        )
+    except (UserInputError, NetworkError, ConfigMissing) as e:
+        # 若已创建实例 + fail_rollback → 尝试 stop
+        if fail_rollback and state.get("new_uuid"):
+            warn(
+                f"⚠ chain 失败, fail_rollback 启用 → 尝试 stop 新实例 "
+                f"{state['new_uuid'][:12]}.."
+            )
+            state["rollback_attempted"] = True
+            try:
+                rc = subprocess.run(
+                    [sys.executable, "-m", "kuake", "stop", state["new_uuid"], "-y"],
+                    check=False,
+                ).returncode
+                state["rollback_ok"] = (rc == 0)
+                if rc == 0:
+                    ok("  rollback: 实例已 stop")
+                else:
+                    warn(f"  rollback 失败 (exit {rc}) — 自己去 AutoDL 控制台关")
+            except Exception as roll_e:
+                state["rollback_ok"] = False
+                warn(f"  rollback 异常: {roll_e}")
+        if json_output:
+            print(_json.dumps({"success": False, "error": str(e), **state},
+                              ensure_ascii=False))
+        raise
+    else:
+        if json_output:
+            print(_json.dumps({"success": True, **state}, ensure_ascii=False))
+
+
+def _run_chain(
+    *,
+    state: dict,
+    gpu_types,
+    regions,
+    cpu_ok,
+    min_idle_gpu,
+    gpu_count,
+    expand_data_disk_gb,
+    system_disk_change_size_gb,
+    image,
+    poll_seconds,
+    max_market_iters,
+    ready_timeout,
+    autopanel_password,
+    cloud_dir,
+    task,
+    src,
+    no_unzip,
+    keep_zip,
+    stop_after,
+) -> None:
     if stop_after not in _STOP_POINTS:
         raise UserInputError(
             f"stop_after 必须是 {_STOP_POINTS} 之一, 收到 {stop_after!r}"
@@ -111,11 +193,13 @@ def run(
         if max_market_iters and it >= max_market_iters:
             console.print()
             warn(f"  轮询达 {max_market_iters} 次,无匹配,退出 (无操作)")
+            state["stage_reached"] = "market_no_match"
             return
         time.sleep(poll_seconds)
 
     console.print()
     ok(f"  匹配: {matched}")
+    state["stage_reached"] = "market_matched"
 
     # ── [2/5] PLAN + confirm-create ───────────────────────────
     info("[2/5] 生成 PLAN + 自动下单 (--yes, 3s grace)")
@@ -132,11 +216,14 @@ def run(
     plan_path = plans_dir / f"auto_{stamp}.json"
     save_plan(plan, str(plan_path))
     ok(f"  PLAN → {plan_path}")
+    state["plan_file"] = str(plan_path)
 
     new_uuid = confirm_create.run(plan_file=str(plan_path), yes=True)
     if not new_uuid:
         raise UserInputError("confirm-create 被取消或失败,终止")
     ok(f"  uuid: {new_uuid}")
+    state["new_uuid"] = new_uuid
+    state["stage_reached"] = "created"
 
     if stop_after == "create":
         ok("stop_after=create → 完成,新实例已下单")
@@ -152,6 +239,7 @@ def run(
         new_uuid, timeout=ready_timeout, poll=5, progress_cb=_on_status
     )
     ok(f"  ready: {inst.get('machine_alias','?')} {inst.get('region_name','?')}")
+    state["stage_reached"] = "ready"
 
     if stop_after == "ready":
         ok("stop_after=ready → 完成,实例已就绪可登录")
@@ -188,6 +276,7 @@ def run(
     if rc != 0:
         raise UserInputError(f"kuake init 失败 (exit {rc})")
     ok("  init 完成: ~/.kuake/config.toml + credentials.toml")
+    state["stage_reached"] = "init_done"
 
     if stop_after == "init":
         ok("stop_after=init → 完成,凭据已落地")
@@ -203,6 +292,7 @@ def run(
     rc = subprocess.run(push_args, check=False).returncode
     if rc != 0:
         raise UserInputError(f"kuake push 失败 (exit {rc})")
+    state["stage_reached"] = "push_done"
 
     ok("=" * 60)
     ok("kuake auto: 全链完成")

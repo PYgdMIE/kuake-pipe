@@ -8,9 +8,11 @@ Usage:
 """
 from __future__ import annotations
 
+import json as _json
+
 from kuake.autodl_api import AutoDLClient, load_jwt_from_storage_state
 from kuake.errors import ConfigMissing, NetworkError, UserInputError
-from kuake.progress import console, info, ok
+from kuake.progress import console, info, ok, set_json_mode
 
 
 def run(
@@ -18,12 +20,15 @@ def run(
     *,
     timeout: int = 600,
     poll: int = 5,
+    json_output: bool = False,
 ) -> dict:
     """Wait for the given instance to be running.
 
     target: 实例的 uuid (完整或前缀), 或 1-based 索引 (kuake instances 列出的)。
     Returns the running instance dict (用于 chain).
     """
+    if json_output:
+        set_json_mode(True)
     if not target:
         raise UserInputError("缺 target (uuid 前缀或 1-based 索引)")
 
@@ -63,4 +68,13 @@ def run(
     console.print(f"  机器: {inst.get('machine_alias','?')} ({inst.get('region_name','?')})")
     console.print(f"  GPU : {inst.get('snapshot_gpu_alias_name','?')} × "
                   f"{inst.get('req_gpu_amount', 1)}")
+    if json_output:
+        print(_json.dumps({
+            "uuid": inst.get("uuid", ""),
+            "machine_alias": inst.get("machine_alias", ""),
+            "region_name": inst.get("region_name", ""),
+            "gpu_name": inst.get("snapshot_gpu_alias_name", ""),
+            "gpu_count": inst.get("req_gpu_amount", 1),
+            "status": inst.get("status", ""),
+        }, ensure_ascii=False))
     return inst

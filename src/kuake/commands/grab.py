@@ -21,6 +21,7 @@ Usage:
 """
 from __future__ import annotations
 
+import json as _json
 import time
 from datetime import datetime
 
@@ -33,7 +34,7 @@ from kuake.autodl_planner import (
 )
 from kuake.config import config_paths
 from kuake.errors import ConfigMissing, NetworkError
-from kuake.progress import console, info, ok, warn
+from kuake.progress import console, info, ok, set_json_mode, warn
 
 
 def run(
@@ -47,9 +48,12 @@ def run(
     image: str | None = None,
     poll_seconds: int = 5,
     max_iterations: int = 0,
+    json_output: bool = False,
     **_legacy_flags,  # 吞掉旧的 dry_run / auto_create
 ) -> None:
     """Poll until matching machine found, build PLAN, print + save, exit (no submit)."""
+    if json_output:
+        set_json_mode(True)
     try:
         jwt = load_jwt_from_storage_state()
     except NetworkError as e:
@@ -77,6 +81,9 @@ def run(
         except NetworkError as e:
             warn(f"poll #{it}: {e}")
             if max_iterations and it >= max_iterations:
+                if json_output:
+                    print(_json.dumps({"matched": False, "reason": "network_error",
+                                       "iterations": it}, ensure_ascii=False))
                 return
             time.sleep(poll_seconds)
             continue
@@ -98,7 +105,22 @@ def run(
                 expand_data_disk_gb=expand_data_disk_gb,
                 system_disk_change_size_gb=system_disk_change_size_gb,
             )
-            _output_plan(plan)
+            plan_path = _output_plan(plan)
+            if json_output:
+                print(_json.dumps({
+                    "matched": True,
+                    "plan_file": str(plan_path),
+                    "summary": {
+                        "machine_alias": plan.machine_alias,
+                        "region_name": plan.region_name,
+                        "gpu_name": plan.gpu_name,
+                        "gpu_count": plan.req_gpu_amount,
+                        "expand_data_disk_gb": plan.expand_data_disk,
+                        "system_disk_change_size_gb": plan.system_disk_change_size,
+                        "price_yuan_per_hour": plan.payg_price_yuan_per_hour,
+                        "image": plan.image,
+                    },
+                }, ensure_ascii=False))
             return
 
         console.print(f"[dim]poll #{it}: 暂无匹配 ({poll_seconds}s 后重试)[/dim]",
@@ -106,11 +128,14 @@ def run(
         if max_iterations and it >= max_iterations:
             console.print()
             warn(f"达到最大轮询次数 ({max_iterations}),退出")
+            if json_output:
+                print(_json.dumps({"matched": False, "reason": "max_iter",
+                                   "iterations": it}, ensure_ascii=False))
             return
         time.sleep(poll_seconds)
 
 
-def _output_plan(plan: InstancePlan) -> None:
+def _output_plan(plan: InstancePlan) -> str:
     console.print(format_plan(plan))
     # 落盘
     plans_dir = config_paths().home / "plans"
@@ -120,3 +145,4 @@ def _output_plan(plan: InstancePlan) -> None:
     save_plan(plan, str(plan_path))
     ok(f"PLAN 已落盘: {plan_path}")
     info("→ 真下单需要: kuake confirm-create --plan-file " + str(plan_path))
+    return str(plan_path)

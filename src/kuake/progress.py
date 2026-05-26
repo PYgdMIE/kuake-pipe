@@ -20,6 +20,14 @@ from rich.progress import (
 console = Console()
 
 
+def set_json_mode(enabled: bool) -> None:
+    """In JSON mode, route rich output (info/ok/warn/err) to stderr.
+
+    Reserves stdout for the JSON-line payload that CC/Codex parse.
+    """
+    console.file = sys.stderr if enabled else sys.stdout
+
+
 def setup_utf8():
     """Force UTF-8 stdout for Windows console (中文不乱码)."""
     if hasattr(sys.stdout, "reconfigure"):

@@ -478,6 +478,8 @@ def test_push_cancel_unknown_job_returns_404(client):
 
 
 def test_push_cancel_terminates_process(client, kuake_home):
+    import sys as _sys
+
     from kuake import server
     from kuake.server import JobStore
     store = JobStore(kuake_home)
@@ -489,7 +491,11 @@ def test_push_cancel_terminates_process(client, kuake_home):
     try:
         r = client.post(f"/api/push-cancel/{jid}")
         assert r.status_code == 200
-        fake_proc.terminate.assert_called_once()
+        if _sys.platform == "win32":
+            # Win: 用 CTRL_BREAK_EVENT (让子进程有机会清理)
+            fake_proc.send_signal.assert_called_once()
+        else:
+            fake_proc.terminate.assert_called_once()
         assert store.get(jid)["status"] == "cancelled"
         assert jid in server._CANCELLED
     finally:

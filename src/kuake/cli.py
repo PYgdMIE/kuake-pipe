@@ -48,7 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("refresh", help="强制刷 panel token/cookie")
     sub.add_parser("doctor", help="全链路自检")
-    sub.add_parser("whoami", help="AutoDL 账号信息 + 钱包余额(只读)")
+    p_whoami = sub.add_parser("whoami", help="AutoDL 账号信息 + 钱包余额(只读)")
+    p_whoami.add_argument("--json", action="store_true", dest="json_output",
+                          help="JSON 输出 (CC/Codex 用), stdout 仅 JSON, 其它走 stderr")
     sub.add_parser("ls", help="列远端 /root/autodl-tmp/")
 
     p_rm = sub.add_parser("rm", help="删除远端 task 目录")
@@ -59,7 +61,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_reset.add_argument("--keep-credentials", action="store_true")
 
     # Instance lifecycle (v1.1)
-    sub.add_parser("instances", help="列出 AutoDL 实例及状态")
+    p_instances = sub.add_parser("instances", help="列出 AutoDL 实例及状态")
+    p_instances.add_argument("--json", action="store_true", dest="json_output",
+                             help="JSON 输出 (CC/Codex 用), 走 API 而不是 DOM scrape")
 
     p_start = sub.add_parser("start", help="开机 AutoDL 实例")
     p_start.add_argument("target", nargs="?", default="default",
@@ -93,6 +97,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_grab.add_argument("--poll", type=int, default=5, help="轮询间隔秒")
     p_grab.add_argument("--max-iter", type=int, default=0,
                         help="最多轮询次数,0=无限")
+    p_grab.add_argument("--json", action="store_true", dest="json_output",
+                        help="匹配后输出 JSON {matched, plan_file, summary}")
 
     p_clone = sub.add_parser(
         "clone",
@@ -128,6 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="最长等待秒数 (默认 600)")
     p_wait.add_argument("--poll", type=int, default=5,
                         help="轮询间隔秒数 (默认 5)")
+    p_wait.add_argument("--json", action="store_true", dest="json_output",
+                        help="ready 后输出 JSON {uuid, machine_alias, ...}")
 
     p_auto = sub.add_parser(
         "auto",
@@ -171,6 +179,23 @@ def build_parser() -> argparse.ArgumentParser:
                         default="push",
                         help="到哪一步停: create=下单后就停 / ready=等就绪 / "
                              "init=配好凭据 / push=完整跑完 (默认)")
+    p_auto.add_argument("--json", action="store_true", dest="json_output",
+                        help="结束时输出 JSON {success, stage_reached, new_uuid, ...}")
+    p_auto.add_argument("--fail-rollback", action="store_true", dest="fail_rollback",
+                        help="链中失败 (在 created 之后) → 自动 kuake stop 新实例防扣费")
+
+    p_status = sub.add_parser(
+        "status",
+        help="列最近 kuake jobs (push/auto), 或单 job 详情 (CC/Codex 外部查询)",
+    )
+    p_status.add_argument("job_id", nargs="?", default=None,
+                          help="单 job ID (留空 = 列最近 N 个)")
+    p_status.add_argument("--limit", type=int, default=10,
+                          help="列多少 (默认 10)")
+    p_status.add_argument("--only-running", action="store_true",
+                          help="只显示 running 中")
+    p_status.add_argument("--json", action="store_true", dest="json_output",
+                          help="JSON 输出")
 
     p_serve = sub.add_parser(
         "serve",
@@ -251,7 +276,7 @@ def dispatch(args):
         doctor.run()
     elif cmd == "whoami":
         from kuake.commands import whoami
-        whoami.run()
+        whoami.run(json_output=getattr(args, "json_output", False))
     elif cmd == "ls":
         from kuake.commands import ls
         ls.run()
@@ -263,7 +288,7 @@ def dispatch(args):
         reset.run(keep_credentials=args.keep_credentials)
     elif cmd == "instances":
         from kuake.commands import instances
-        instances.run()
+        instances.run(json_output=getattr(args, "json_output", False))
     elif cmd == "start":
         from kuake.commands import start
         start.run(args.target)
@@ -283,6 +308,7 @@ def dispatch(args):
             image=args.image,
             poll_seconds=args.poll,
             max_iterations=args.max_iter,
+            json_output=getattr(args, "json_output", False),
         )
     elif cmd == "clone":
         from kuake.commands import clone
@@ -298,7 +324,8 @@ def dispatch(args):
         confirm_create.run(plan_file=args.plan_file, yes=args.yes)
     elif cmd == "wait-running":
         from kuake.commands import wait_running
-        wait_running.run(args.target, timeout=args.timeout, poll=args.poll)
+        wait_running.run(args.target, timeout=args.timeout, poll=args.poll,
+                         json_output=getattr(args, "json_output", False))
     elif cmd == "auto":
         from kuake.commands import auto
         autopanel_pw = (args.autopanel_password
@@ -322,6 +349,16 @@ def dispatch(args):
             no_unzip=args.no_unzip,
             keep_zip=args.keep_zip,
             stop_after=args.stop_after,
+            json_output=getattr(args, "json_output", False),
+            fail_rollback=getattr(args, "fail_rollback", False),
+        )
+    elif cmd == "status":
+        from kuake.commands import status
+        status.run(
+            job_id=args.job_id,
+            limit=args.limit,
+            only_running=args.only_running,
+            json_output=getattr(args, "json_output", False),
         )
     elif cmd == "serve":
         from kuake import server

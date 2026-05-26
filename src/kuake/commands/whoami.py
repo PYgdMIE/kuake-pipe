@@ -1,12 +1,17 @@
 """Show AutoDL user info + wallet balance (read-only)."""
 from __future__ import annotations
 
+import json
+
 from kuake.autodl_api import AutoDLClient, load_jwt_from_storage_state
 from kuake.errors import ConfigMissing, NetworkError
-from kuake.progress import console, info, ok
+from kuake.progress import console, info, ok, set_json_mode
 
 
-def run() -> None:
+def run(json_output: bool = False) -> None:
+    if json_output:
+        set_json_mode(True)
+
     try:
         jwt = load_jwt_from_storage_state()
     except NetworkError as e:
@@ -24,6 +29,25 @@ def run() -> None:
     except Exception as e:
         info(f"无法列实例: {e}")
         instances = []
+
+    running = sum(1 for i in instances if i.get("status") == "running")
+
+    if json_output:
+        out = {
+            "wallet": {
+                "assets_yuan": wallet.get("assets", 0) / 100,
+                "blocked_asset_yuan": wallet.get("blocked_asset", 0) / 100,
+                "accumulate_yuan": wallet.get("accumulate", 0) / 100,
+                "voucher_balance_yuan": wallet.get("voucher_balance", 0) / 100,
+                "available_coupon_num": wallet.get("available_coupon_num", 0),
+            },
+            "instances": {
+                "total": len(instances),
+                "running": running,
+            },
+        }
+        print(json.dumps(out, ensure_ascii=False))
+        return
 
     console.print()
     ok("AutoDL 账号信息")
@@ -45,5 +69,4 @@ def run() -> None:
     else:
         console.print("  [dim]钱包数据未读取[/dim]")
 
-    running = sum(1 for i in instances if i.get("status") == "running")
     console.print(f"  实例总数  : {len(instances)} (运行中 {running} 台)")

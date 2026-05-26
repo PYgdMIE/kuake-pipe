@@ -28,6 +28,7 @@ import os
 import queue
 import re
 import secrets
+import signal as _signal
 import subprocess
 import sys
 import threading
@@ -559,11 +560,17 @@ def create_app() -> Flask:
             finished_at=datetime.now().isoformat(timespec="seconds"),
         )
         try:
-            proc.terminate()
+            # Win: CTRL_BREAK_EVENT 让子进程的 Python 收到 KeyboardInterrupt,
+            # finally 清理 (SSH 断连, FileLock 释放, 临时 zip 删除) 都能跑。
+            # POSIX: SIGTERM 同效果。
+            if sys.platform == "win32":
+                proc.send_signal(_signal.CTRL_BREAK_EVENT)
+            else:
+                proc.terminate()
             try:
                 proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                proc.kill()  # 子进程没在 3s 内退 → 硬杀
         except Exception as e:  # noqa: BLE001
             return jsonify({"error": f"终止失败: {e}"}), 500
         return jsonify({"ok": True})
@@ -738,10 +745,16 @@ def _spawn_job(
         env = os.environ.copy()
         if extra_env:
             env.update(extra_env)
+        # Win: CREATE_NEW_PROCESS_GROUP 让我们后面能 send CTRL_BREAK_EVENT
+        # (没有这个 flag, 子进程收不到 ctrl-break, 只能被硬杀)
+        popen_kwargs: dict = {}
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace", env=env,
+            **popen_kwargs,
         )
         _LIVE_PROCS[job_id] = proc
         store.update(job_id, pid=proc.pid)

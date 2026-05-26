@@ -87,6 +87,20 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
                 "--headless 要求已有 storage_state (即至少完整跑过一次 `kuake init`)。"
                 "首次配置请去掉 --headless 让浏览器可见以便扫码。"
             )
+        # 主动 API ping 验证 AutoDL JWT 还有效, 否则 headless 进 QR 页会卡死无反馈
+        try:
+            from kuake.autodl_api import (
+                AutoDLClient,
+                load_jwt_from_storage_state,
+            )
+            client = AutoDLClient(jwt=load_jwt_from_storage_state())
+            client.list_instances(page_size=1)
+            info("  ✓ headless 预检: AutoDL JWT 有效")
+        except Exception as e:
+            raise UserInputError(
+                f"--headless 预检失败 (AutoDL JWT 可能过期): {e}\n"
+                "  去掉 --headless 让浏览器可见,重新扫 AutoDL 码后再用 headless。"
+            ) from e
 
     with lock_ctx:
         # 1. ensure chromium
