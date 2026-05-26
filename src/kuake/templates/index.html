@@ -827,7 +827,11 @@ function renderImagePopup() {
     </div>
   `;
   popup.querySelectorAll('.opt[data-set]').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      // 阻止冒泡到 document — 否则 renderImagePopup() 重建 innerHTML 后,
+      // 旧 target 已脱离 DOM,popup.contains(e.target) 返回 false,
+      // 文档监听会误判为"点外面"关掉 popup
+      e.stopPropagation();
       const k = el.dataset.set, v = el.dataset.v;
       imageSel[k] = v;
       if (k === 'framework') { imageSel.ver = ''; imageSel.py = ''; imageSel.cuda = ''; }
