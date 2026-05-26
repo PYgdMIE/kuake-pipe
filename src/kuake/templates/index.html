@@ -56,6 +56,25 @@
   .group .help { font-size: 11px; color: var(--dim); margin-top: 6px; line-height: 1.5; }
   .toggle { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--bg-3); border-radius: 4px; border: 1px solid var(--line); }
   .toggle input { width: auto; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    padding: 4px 10px; font-size: 11px; background: var(--bg-3);
+    border: 1px solid var(--line); border-radius: 999px; cursor: pointer;
+    user-select: none; transition: all .12s; font-family: var(--mono);
+  }
+  .chip:hover { border-color: var(--dim); }
+  .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .empty-help {
+    text-align: center; padding: 36px 24px; color: var(--dim);
+  }
+  .empty-help .ic { font-size: 32px; margin-bottom: 12px; opacity: 0.5; }
+  .empty-help .hint { font-size: 12px; margin-top: 12px; line-height: 1.7; }
+  .empty-help .actions { margin-top: 18px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .empty-help .actions button {
+    padding: 6px 14px; background: var(--bg-3); border: 1px solid var(--line);
+    color: var(--text); border-radius: 4px; font-size: 12px; cursor: pointer;
+  }
+  .empty-help .actions button:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   .btn {
     width: 100%; padding: 11px 16px; background: var(--accent); color: #fff;
@@ -277,6 +296,12 @@
     <input type="number" id="min-idle" value="1" min="1" max="8" />
   </div>
   <div class="group">
+    <label>区域 (多选, 留空 = 不限)</label>
+    <div class="chips" id="region-chips">
+      <span style="font-size: 11px; color: var(--dim);">加载市场后会自动列出</span>
+    </div>
+  </div>
+  <div class="group">
     <label class="toggle"><input type="checkbox" id="cpu-ok" /><span>也显示 CPU 实例</span></label>
   </div>
 
@@ -299,7 +324,10 @@
     <label>镜像 (框架 / 版本 / Python / CUDA)</label>
     <div class="image-picker" id="image-picker">
       <span class="label placeholder" id="image-label">公共 PyTorch 默认</span>
-      <span style="color: var(--dim); font-size: 11px;">▾</span>
+      <span style="display: flex; align-items: center; gap: 6px;">
+        <button id="image-clear" title="清空选择" style="display: none; background: transparent; border: none; color: var(--dim); cursor: pointer; padding: 0 4px; font-size: 14px;">✕</button>
+        <span style="color: var(--dim); font-size: 11px;">▾</span>
+      </span>
     </div>
   </div>
   <div class="group">
@@ -310,7 +338,16 @@
   <h3 style="margin-top: 32px;">监督模式</h3>
   <div class="group">
     <label class="toggle"><input type="checkbox" id="auto-watch" /><span>实时轮询</span></label>
-    <div class="help">开后每 5s 刷新, 新机器整行 flash + 桌面通知</div>
+  </div>
+  <div class="group">
+    <label>轮询间隔</label>
+    <select id="poll-interval">
+      <option value="3">3 秒 (紧急抢)</option>
+      <option value="5" selected>5 秒 (默认)</option>
+      <option value="10">10 秒 (省请求)</option>
+      <option value="30">30 秒 (后台监督)</option>
+    </select>
+    <div class="help">新机器出现会整行 flash + 桌面通知</div>
   </div>
   <div class="group">
     <button class="btn" id="refresh-now">立即刷新</button>
@@ -476,7 +513,21 @@ async function notify(title, body) {
 }
 
 // ───────── market ─────────
-let marketState = { matches: [], sortBy: 'price_yuan_per_hour', sortAsc: true, lastIds: new Set(), pollHandle: null, expanded: new Set() };
+let marketState = {
+  matches: [], sortBy: 'price_yuan_per_hour', sortAsc: true,
+  lastIds: new Set(), pollHandle: null, expanded: new Set(),
+  regions: new Set(),         // 用户选中的 region_sign
+  allRegions: new Map(),      // sign → name, 从市场数据收集
+  consecutiveFails: 0,
+};
+const POLL_MAX_FAILS = 3;
+
+function detectJWTExpired(msg) {
+  const m = String(msg || '').toLowerCase();
+  return m.includes('登录') || m.includes('login') || m.includes('jwt') ||
+         m.includes('授权') || m.includes('session') || m.includes('authorize') ||
+         m.includes('storage_state');
+}
 
 async function fetchMarket() {
   const gpu = document.getElementById('gpu-preset').value;
@@ -486,18 +537,56 @@ async function fetchMarket() {
   if (gpu) params.append('gpu', gpu);
   params.append('min_idle', minIdle);
   params.append('cpu_ok', cpuOk);
+  for (const rs of marketState.regions) params.append('region', rs);
+
   document.getElementById('status-text').textContent = '请求中...';
   try {
     const r = await fetch('/api/market?' + params.toString());
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'API 错误');
+    if (!r.ok) {
+      if (detectJWTExpired(data.error)) {
+        throw new Error('JWT 过期 — 请在终端跑 `kuake init` 重新扫码登录');
+      }
+      throw new Error(data.error || 'API 错误');
+    }
+    marketState.consecutiveFails = 0;
     marketState.matches = data.matches || [];
+    // 收集所有 region (即使被过滤掉的也保留, 让用户能切换)
+    for (const m of marketState.matches) {
+      if (m.region_sign) marketState.allRegions.set(m.region_sign, m.region_name);
+    }
+    renderRegionChips();
     renderMarket();
     document.getElementById('status-text').textContent = `${marketState.matches.length} 台匹配`;
     document.getElementById('last-update').textContent = '更新于 ' + new Date().toLocaleTimeString();
   } catch (e) {
+    marketState.consecutiveFails += 1;
     document.getElementById('status-text').textContent = '失败: ' + e.message;
     toast('查市场失败: ' + e.message, 'error');
+    if (marketState.pollHandle && marketState.consecutiveFails >= POLL_MAX_FAILS) {
+      stopAutoWatch();
+      toast(`连续 ${POLL_MAX_FAILS} 次失败,已自动暂停轮询`, 'error');
+    }
+  }
+}
+
+function renderRegionChips() {
+  const wrap = document.getElementById('region-chips');
+  if (marketState.allRegions.size === 0) return;
+  wrap.innerHTML = '';
+  const entries = [...marketState.allRegions.entries()].sort();
+  for (const [sign, name] of entries) {
+    const c = document.createElement('span');
+    c.className = 'chip' + (marketState.regions.has(sign) ? ' on' : '');
+    c.textContent = name;
+    c.title = sign;
+    c.addEventListener('click', () => {
+      if (marketState.regions.has(sign)) marketState.regions.delete(sign);
+      else marketState.regions.add(sign);
+      renderRegionChips();
+      fetchMarket();
+    });
+    wrap.appendChild(c);
   }
 }
 
@@ -511,9 +600,38 @@ function renderMarket() {
   });
 
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="10" style="padding: 40px; text-align: center; color: var(--dim);">
-      暂无匹配 ${marketState.pollHandle ? '— 继续轮询' : ''}
+    const hasFilter = document.getElementById('gpu-preset').value ||
+                      marketState.regions.size > 0 ||
+                      parseInt(document.getElementById('min-idle').value, 10) > 1;
+    tbody.innerHTML = `<tr><td colspan="10">
+      <div class="empty-help">
+        <div class="ic">🔭</div>
+        <div>暂无匹配 ${marketState.pollHandle ? '— 继续轮询中' : ''}</div>
+        ${hasFilter ? `
+          <div class="hint">
+            常见原因:GPU 太热门 / region 限太死 / min-idle 太高<br>
+            试试放宽筛选:
+          </div>
+          <div class="actions">
+            <button id="empty-clear-gpu">清空 GPU 型号</button>
+            <button id="empty-clear-region">清空区域</button>
+            <button id="empty-min-1">min-idle = 1</button>
+            <button id="empty-cpu-ok">+ CPU 实例</button>
+          </div>
+        ` : `
+          <div class="hint">市场上完全没有空闲机器,稀有时段。开实时轮询等等。</div>
+        `}
+      </div>
     </td></tr>`;
+    // 快捷按钮绑定
+    const e1 = document.getElementById('empty-clear-gpu');
+    if (e1) e1.onclick = () => { document.getElementById('gpu-preset').value = ''; fetchMarket(); };
+    const e2 = document.getElementById('empty-clear-region');
+    if (e2) e2.onclick = () => { marketState.regions.clear(); renderRegionChips(); fetchMarket(); };
+    const e3 = document.getElementById('empty-min-1');
+    if (e3) e3.onclick = () => { document.getElementById('min-idle').value = '1'; fetchMarket(); };
+    const e4 = document.getElementById('empty-cpu-ok');
+    if (e4) e4.onclick = () => { document.getElementById('cpu-ok').checked = true; fetchMarket(); };
     return;
   }
 
@@ -544,8 +662,8 @@ function renderMarket() {
           <div class="field"><span class="k">每卡 CPU</span><span class="v">${d.cpu_per_gpu || '?'} 核 / ${d.cpu_num || '?'} 总</span></div>
           <div class="field"><span class="k">每卡内存</span><span class="v">${d.mem_per_gpu_gb || '?'} GB / ${d.memory_gb || '?'} 总</span></div>
           <div class="field"><span class="k">GPU 显存</span><span class="v accent">${d.gpu_memory_gb || '?'} GB</span></div>
-          <div class="field"><span class="k">磁盘</span><span class="v">${d.disk_size_gb || '?'} GB ${d.disk_type || ''}</span></div>
-          <div class="field"><span class="k">数据盘默认</span><span class="v">${d.data_disk_default_gb || '?'} GB</span></div>
+          <div class="field"><span class="k">主机磁盘</span><span class="v" title="整台物理机的硬盘容量, 不是你实例可用的">${d.disk_size_gb || '?'} GB ${d.disk_type || ''}</span></div>
+          <div class="field"><span class="k">实例数据盘</span><span class="v" title="新建实例时分配的数据盘默认大小, 可在创建时扩容">默认 ${d.data_disk_default_gb || 50} GB</span></div>
           <div class="field"><span class="k">CUDA 最高</span><span class="v accent">${escapeHtml(d.cuda_version_max || '?')}</span></div>
           <div class="field"><span class="k">驱动</span><span class="v">${escapeHtml(d.driver_version || '?')}</span></div>
           <div class="field"><span class="k">OS</span><span class="v">${escapeHtml(d.os_name || '?')}</span></div>
@@ -584,19 +702,35 @@ document.querySelectorAll('th[data-sort]').forEach(th => {
     renderMarket();
   });
 });
+function startAutoWatch() {
+  const interval = parseInt(document.getElementById('poll-interval').value, 10) * 1000;
+  document.getElementById('pulse').classList.add('live');
+  marketState.consecutiveFails = 0;
+  fetchMarket();
+  marketState.pollHandle = setInterval(fetchMarket, interval);
+}
+function stopAutoWatch() {
+  document.getElementById('pulse').classList.remove('live');
+  clearInterval(marketState.pollHandle);
+  marketState.pollHandle = null;
+  document.getElementById('auto-watch').checked = false;
+}
 document.getElementById('auto-watch').addEventListener('change', e => {
-  const pulse = document.getElementById('pulse');
   if (e.target.checked) {
-    pulse.classList.add('live');
-    fetchMarket();
-    marketState.pollHandle = setInterval(fetchMarket, 5000);
-    toast('实时轮询启动 (5s)');
+    startAutoWatch();
+    toast(`实时轮询启动 (${document.getElementById('poll-interval').value}s)`);
     notify('kuake', '已开启实时轮询').catch(() => {});
   } else {
-    pulse.classList.remove('live');
-    clearInterval(marketState.pollHandle);
-    marketState.pollHandle = null;
+    stopAutoWatch();
     toast('实时轮询已停');
+  }
+});
+document.getElementById('poll-interval').addEventListener('change', () => {
+  // 重启轮询应用新间隔
+  if (marketState.pollHandle) {
+    clearInterval(marketState.pollHandle);
+    startAutoWatch();
+    toast(`轮询间隔改为 ${document.getElementById('poll-interval').value}s`);
   }
 });
 
@@ -614,15 +748,23 @@ async function loadImagePresets() {
 
 function renderImageLabel() {
   const lb = document.getElementById('image-label');
+  const clearBtn = document.getElementById('image-clear');
   if (imageSel.framework && imageSel.ver && imageSel.py && imageSel.cuda) {
     lb.className = 'label';
     const verStr = imageSel.ver === '—' ? '' : ` / ${imageSel.ver}`;
     lb.textContent = `${imageSel.framework}${verStr} / Py${imageSel.py} / CUDA${imageSel.cuda}`;
+    clearBtn.style.display = 'inline-block';
   } else {
     lb.className = 'label placeholder';
     lb.textContent = '公共 PyTorch 默认';
+    clearBtn.style.display = 'none';
   }
 }
+document.getElementById('image-clear').addEventListener('click', e => {
+  e.stopPropagation();
+  imageSel = { framework: '', ver: '', py: '', cuda: '' };
+  renderImageLabel();
+});
 
 document.getElementById('image-picker').addEventListener('click', e => {
   e.stopPropagation();
@@ -712,7 +854,12 @@ async function onLock(machineId) {
       body: JSON.stringify(body),
     });
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'PLAN 生成失败');
+    if (!r.ok) {
+      if (detectJWTExpired(data.error)) {
+        throw new Error('JWT 过期 — 在终端跑 `kuake init` 重新扫码');
+      }
+      throw new Error(data.error || 'PLAN 生成失败');
+    }
     pendingPlan = data;
     showLockModal(data);
   } catch (e) { toast(e.message, 'error'); }
@@ -736,6 +883,12 @@ function showLockModal(planResp) {
 document.getElementById('modal-close').onclick = closeModal;
 document.getElementById('modal-cancel').onclick = closeModal;
 function closeModal() { document.getElementById('lock-modal').classList.remove('show'); pendingPlan = null; }
+// ESC 关 modal
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('lock-modal').classList.contains('show')) {
+    closeModal();
+  }
+});
 
 document.getElementById('modal-submit').onclick = async () => {
   const yes = document.getElementById('yes-input').value.trim();
@@ -749,7 +902,12 @@ document.getElementById('modal-submit').onclick = async () => {
       body: JSON.stringify({plan_file: pendingPlan.plan_file, yes: 'YES'}),
     });
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error || '下单失败');
+    if (!r.ok) {
+      if (detectJWTExpired(data.error)) {
+        throw new Error('JWT 过期 — 在终端跑 `kuake init` 重新扫码');
+      }
+      throw new Error(data.error || '下单失败');
+    }
     toast(`✓ 创建成功: ${data.uuid || data.result}`, 'success');
     notify('kuake 抢卡成功', `${pendingPlan.summary.machine_alias} ${pendingPlan.summary.gpu_name}`);
     closeModal();
