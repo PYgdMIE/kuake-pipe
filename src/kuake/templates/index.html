@@ -235,13 +235,18 @@
   .image-picker .label { color: var(--text); }
   .image-picker .label.placeholder { color: var(--dim); }
   .image-picker-popup {
-    position: absolute; background: var(--bg-2); border: 1px solid var(--line);
+    background: var(--bg-2); border: 1px solid var(--line);
     border-radius: 6px; box-shadow: 0 12px 32px rgba(0,0,0,0.5);
-    display: flex; min-width: 480px; max-height: 280px; z-index: 50;
+    width: 560px; max-width: calc(100vw - 32px); height: 320px;
+    z-index: 80; overflow: hidden;
+  }
+  .image-picker-popup .grid {
+    display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr;
+    height: 100%;
   }
   .image-picker-popup .col {
-    flex: 1; border-right: 1px solid var(--line); overflow-y: auto;
-    min-width: 110px;
+    border-right: 1px solid var(--line); overflow-y: auto;
+    min-width: 0;
   }
   .image-picker-popup .col:last-child { border-right: none; }
   .image-picker-popup .col h4 {
@@ -476,7 +481,7 @@
 </div>
 
 <!-- ── image picker popup ── -->
-<div id="image-popup" style="display: none; position: absolute;"></div>
+<div id="image-popup" class="image-picker-popup" style="display: none; position: fixed;"></div>
 
 <script>
 "use strict";
@@ -771,9 +776,16 @@ document.getElementById('image-picker').addEventListener('click', e => {
   if (!imagePresets) return;
   const popup = document.getElementById('image-popup');
   const rect = e.currentTarget.getBoundingClientRect();
-  popup.style.left = rect.left + 'px';
-  popup.style.top = (rect.bottom + 4) + 'px';
-  popup.style.display = 'block';
+  // 位置: 默认贴 picker 下方; 右侧若溢出视口则向左对齐;下方若放不下则上翻
+  const popupW = Math.min(560, window.innerWidth - 32);
+  const popupH = 320;
+  let left = rect.left;
+  if (left + popupW > window.innerWidth - 16) left = window.innerWidth - popupW - 16;
+  let top = rect.bottom + 4;
+  if (top + popupH > window.innerHeight - 16) top = Math.max(16, rect.top - popupH - 4);
+  popup.style.left = left + 'px';
+  popup.style.top = top + 'px';
+  popup.style.display = 'block';  // image-picker-popup 已是 block-level container, 内部 .grid 才是布局
   renderImagePopup();
 });
 
@@ -794,23 +806,24 @@ function renderImagePopup() {
   const pys = pyCfg ? pyCfg.py : [];
   const cudas = pyCfg ? pyCfg.cuda : [];
 
-  popup.className = 'image-picker-popup';
   popup.innerHTML = `
-    <div class="col">
-      <h4>框架</h4>
-      ${fws.map(f => `<div class="opt ${imageSel.framework === f ? 'on' : ''}" data-set="framework" data-v="${f}">${f}</div>`).join('')}
-    </div>
-    <div class="col">
-      <h4>版本</h4>
-      ${vers.map(v => `<div class="opt ${imageSel.ver === v ? 'on' : ''}" data-set="ver" data-v="${v}">${v}</div>`).join('') || '<div class="opt" style="color: var(--dim);">选框架</div>'}
-    </div>
-    <div class="col">
-      <h4>Python</h4>
-      ${pys.map(p => `<div class="opt ${imageSel.py === p ? 'on' : ''}" data-set="py" data-v="${p}">${p}</div>`).join('') || '<div class="opt" style="color: var(--dim);">选版本</div>'}
-    </div>
-    <div class="col">
-      <h4>CUDA</h4>
-      ${cudas.map(c => `<div class="opt ${imageSel.cuda === c ? 'on' : ''}" data-set="cuda" data-v="${c}">${c}</div>`).join('') || '<div class="opt" style="color: var(--dim);">选版本</div>'}
+    <div class="grid">
+      <div class="col">
+        <h4>框架</h4>
+        ${fws.map(f => `<div class="opt ${imageSel.framework === f ? 'on' : ''}" data-set="framework" data-v="${f}">${f}</div>`).join('')}
+      </div>
+      <div class="col">
+        <h4>版本</h4>
+        ${vers.map(v => `<div class="opt ${imageSel.ver === v ? 'on' : ''}" data-set="ver" data-v="${v}">${v}</div>`).join('') || '<div class="opt" style="color: var(--dim);">选框架</div>'}
+      </div>
+      <div class="col">
+        <h4>Python</h4>
+        ${pys.map(p => `<div class="opt ${imageSel.py === p ? 'on' : ''}" data-set="py" data-v="${p}">${p}</div>`).join('') || '<div class="opt" style="color: var(--dim);">选版本</div>'}
+      </div>
+      <div class="col" style="border-right: none;">
+        <h4>CUDA</h4>
+        ${cudas.map(c => `<div class="opt ${imageSel.cuda === c ? 'on' : ''}" data-set="cuda" data-v="${c}">${c}</div>`).join('') || '<div class="opt" style="color: var(--dim);">选版本</div>'}
+      </div>
     </div>
   `;
   popup.querySelectorAll('.opt[data-set]').forEach(el => {
