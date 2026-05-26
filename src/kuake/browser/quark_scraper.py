@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from kuake.browser.selectors import (
-    QUARK_LOGIN_URL, QUARK_BACKUP_URL, QUARK_LOGGED_IN,
-    QUARK_BACKUP_FOLDER, try_locators,
+    QUARK_BACKUP_FOLDER,
+    QUARK_BACKUP_URL,
+    QUARK_LOGGED_IN,
+    QUARK_LOGIN_URL,
+    try_locators,
 )
 from kuake.errors import ScraperFailed
 from kuake.progress import info, ok

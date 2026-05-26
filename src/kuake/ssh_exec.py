@@ -1,13 +1,13 @@
 """SSH execution wrapper with password/key dual-mode and unzip fallback."""
 from __future__ import annotations
+
 import shlex
 import sys
 from pathlib import Path
-from typing import Optional
 
 import paramiko
 
-from kuake.errors import SshConnectFailed, SshCommandFailed
+from kuake.errors import SshCommandFailed, SshConnectFailed
 
 
 class SshExec:
@@ -16,8 +16,8 @@ class SshExec:
         host: str,
         port: int,
         user: str,
-        password: Optional[str] = None,
-        key_path: Optional[str] = None,
+        password: str | None = None,
+        key_path: str | None = None,
         timeout: int = 30,
     ):
         self.host = host
@@ -26,7 +26,7 @@ class SshExec:
         self.password = password
         self.key_path = key_path
         self.timeout = timeout
-        self._client: Optional[paramiko.SSHClient] = None
+        self._client: paramiko.SSHClient | None = None
 
     def __enter__(self):
         self.connect()
@@ -134,8 +134,8 @@ class SshExec:
 
 def generate_ed25519_keypair(out_path: Path) -> tuple[Path, str]:
     """Generate ed25519 keypair via cryptography. Returns (private_key_path, public_key_str)."""
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

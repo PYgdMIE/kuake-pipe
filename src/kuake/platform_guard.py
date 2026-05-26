@@ -1,20 +1,20 @@
-"""Platform-specific guards: Linux early exit; Windows/macOS ACL enforcement."""
+"""Platform helpers: ACL enforcement on POSIX/Windows.
+
+v0.4 起,不再有平台限制(夸克 PC 客户端依赖已砍掉)。
+保留 ensure_supported() 作为占位,以兼容 CLI 入口和测试。
+"""
 from __future__ import annotations
+
 import getpass
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-from kuake.errors import PlatformUnsupported
-
 
 def ensure_supported() -> None:
-    """Call at CLI entry. Raises if platform unsupported."""
-    if sys.platform not in ("win32", "darwin"):
-        raise PlatformUnsupported(
-            f"Unsupported platform: {sys.platform}. Only Windows and macOS are supported."
-        )
+    """No-op since v0.4. Kept for backward compatibility with CLI entrypoint."""
+    return None
 
 
 def harden_file_acl(path: Path) -> None:

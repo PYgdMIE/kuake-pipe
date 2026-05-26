@@ -1,6 +1,5 @@
 """Extract Quark cookies from a Playwright browser context as a Cookie header string."""
 from __future__ import annotations
-from typing import List
 
 
 def extract_quark_cookie_header(context, domain_hint: str = "quark.cn") -> str:
@@ -11,7 +10,7 @@ def extract_quark_cookie_header(context, domain_hint: str = "quark.cn") -> str:
         cookies = context.cookies()
     except Exception:
         return ""
-    parts: List[str] = []
+    parts: list[str] = []
     seen_names = set()
     for c in cookies:
         domain = c.get("domain", "")

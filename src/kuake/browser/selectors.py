@@ -1,6 +1,7 @@
 """Centralized DOM selectors with multi-tier fallback.
 Edit this file when AutoDL/Quark UI changes — no other file should hardcode selectors."""
 from __future__ import annotations
+
 from dataclasses import dataclass
 
 

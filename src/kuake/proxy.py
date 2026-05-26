@@ -1,14 +1,14 @@
 """HTTPS_PROXY detection helpers."""
 from __future__ import annotations
+
 import os
-from typing import Optional
 
 
-def get_https_proxy() -> Optional[str]:
+def get_https_proxy() -> str | None:
     return os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
 
 
-def get_http_proxy() -> Optional[str]:
+def get_http_proxy() -> str | None:
     return os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
 
 

@@ -1,8 +1,8 @@
 """Start an AutoDL instance by number from `kuake instances`."""
 from __future__ import annotations
 
-from kuake.config import config_paths
 from kuake.concurrency import FileLock, LockBusy
+from kuake.config import config_paths
 from kuake.errors import ConcurrencyLock, ConfigMissing, UserInputError
 from kuake.progress import info, ok
 
@@ -21,8 +21,8 @@ def run(target: str) -> None:
         raise ConcurrencyLock() from e
 
     with lock_ctx:
-        from kuake.browser.session import launch_browser
         from kuake.browser import autodl_actions
+        from kuake.browser.session import launch_browser
 
         info("启动 headless 浏览器...")
         with launch_browser(headless=True, storage_state=paths.storage_state) as (ctx, _p):

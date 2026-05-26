@@ -1,24 +1,22 @@
 import sys
-import pytest
 from unittest.mock import patch
 from kuake.platform_guard import ensure_supported, harden_file_acl
-from kuake.errors import PlatformUnsupported
 
 
-def test_linux_raises():
+def test_ensure_supported_linux_noop():
+    # v0.4+: 不再拦截 Linux,直接 return None
     with patch.object(sys, "platform", "linux"):
-        with pytest.raises(PlatformUnsupported):
-            ensure_supported()
+        assert ensure_supported() is None
 
 
-def test_win32_passes():
+def test_ensure_supported_win32_noop():
     with patch.object(sys, "platform", "win32"):
-        ensure_supported()
+        assert ensure_supported() is None
 
 
-def test_darwin_passes():
+def test_ensure_supported_darwin_noop():
     with patch.object(sys, "platform", "darwin"):
-        ensure_supported()
+        assert ensure_supported() is None
 
 
 def test_harden_acl_no_crash_on_missing_file(tmp_path):

@@ -1,7 +1,8 @@
 """AutoPanel HTTP API client + expiry detection + auto-refresh hook."""
 from __future__ import annotations
+
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import requests
 
@@ -41,9 +42,9 @@ class PanelClient:
         authorization: str,
         autodl_token: str,
         fs_id: str = "quark1",
-        refresh_callback: Optional[Callable[[], "PanelClient"]] = None,
+        refresh_callback: Callable[[], PanelClient] | None = None,
         timeout: int = 30,
-        proxies: Optional[dict] = None,
+        proxies: dict | None = None,
     ):
         self.base = base.rstrip("/")
         self.fs_id = fs_id
@@ -143,10 +144,10 @@ class PanelClient:
                           params={"fs_id": self.fs_id, "marker": "", "file_id": file_id})
         return d["list"]["List"]
 
-    def find_by_path(self, path: str) -> Optional[dict]:
+    def find_by_path(self, path: str) -> dict | None:
         parts = [p for p in path.strip("/").split("/") if p]
         parent = "0"
-        current: Optional[dict] = None
+        current: dict | None = None
         for name in parts:
             items = self.list_dir(parent)
             for item in items:
@@ -178,7 +179,7 @@ class PanelClient:
         file_name: str,
         timeout: int = 3600,
         poll: int = 5,
-        on_progress: Optional[Callable[[str, Any], None]] = None,
+        on_progress: Callable[[str, Any], None] | None = None,
     ) -> dict:
         deadline = time.time() + timeout
         while time.time() < deadline:

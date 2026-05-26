@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from kuake.config import read_config, read_credentials
+from kuake.progress import console, info
 from kuake.ssh_exec import SshExec
-from kuake.progress import info, console
 
 
 def run() -> None:

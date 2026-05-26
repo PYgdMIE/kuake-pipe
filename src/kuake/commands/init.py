@@ -1,20 +1,22 @@
 """First-run wizard. Drives Playwright through AutoDL + Quark login and configures everything."""
 from __future__ import annotations
+
 import hashlib
-import re
 from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Optional
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Prompt
 
-from kuake.config import (
-    Config, Credentials, config_paths, write_config, write_credentials,
-)
 from kuake.concurrency import FileLock, LockBusy
-from kuake.errors import ConcurrencyLock, UserInputError, ScraperFailed
-from kuake.progress import info, ok, warn, console
+from kuake.config import (
+    Config,
+    Credentials,
+    config_paths,
+    write_config,
+    write_credentials,
+)
+from kuake.errors import ConcurrencyLock, ScraperFailed, UserInputError
+from kuake.progress import console, info, ok, warn
 from kuake.ssh_exec import SshExec, generate_ed25519_keypair
 
 
@@ -63,7 +65,10 @@ def _safe_prompt(prompt: str, default: str = "") -> str:
 
 
 def run(no_smoke: bool = False, ssh_key: bool = False,
-        use_system_chrome: bool = False) -> None:
+        use_system_chrome: bool = False,
+        instance_idx: int | None = None,
+        autopanel_password: str | None = None,
+        cloud_dir: str | None = None) -> None:
     paths = config_paths()
     paths.home.mkdir(parents=True, exist_ok=True)
     paths.state_dir.mkdir(parents=True, exist_ok=True)
@@ -79,8 +84,8 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
         ensure_chromium()
 
         # 2. browser session + scrapers (lazy import)
+        from kuake.browser import autodl_scraper, quark_scraper
         from kuake.browser.session import launch_browser, save_storage_state
-        from kuake.browser import autodl_scraper, panel_scraper, quark_scraper
 
         if use_system_chrome:
             info("启动系统 Chrome (使用你已登录的 profile,Chrome 必须先关闭)...")
@@ -121,8 +126,17 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
                     "所有实例都已关机 — 请到 AutoDL 控制台开机后重跑 `kuake init`"
                 )
             default_idx = running_indices[0] + 1  # 1-based
-            console.print(f"[dim]提示:默认选第一个运行中的实例 [{default_idx}][/dim]")
-            idx = _prompt_index("选择实例", len(rows), default=default_idx)
+            if instance_idx is not None:
+                if not (1 <= instance_idx <= len(rows)):
+                    raise UserInputError(
+                        f"--instance {instance_idx} 超出范围 1-{len(rows)}"
+                    )
+                idx = instance_idx - 1
+                console.print(f"[dim]使用 --instance {instance_idx}:[/dim] "
+                              f"{rows[idx].get('name', '')}")
+            else:
+                console.print(f"[dim]提示:默认选第一个运行中的实例 [{default_idx}][/dim]")
+                idx = _prompt_index("选择实例", len(rows), default=default_idx)
             chosen = rows[idx]
             if not chosen.get("running"):
                 raise UserInputError(
@@ -137,12 +151,9 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
             if instance.autopanel_url:
                 ok(f"  AutoPanel: {instance.autopanel_url}")
 
-            # 6. auth mode choice
+            # 6. auth mode: --ssh-key 显式选密钥模式;否则默认 password.
+            # v0.4 起不再弹 Confirm prompt — 想用密钥就传 --ssh-key.
             use_key = ssh_key
-            if not use_key:
-                use_key = Confirm.ask(
-                    "使用 SSH 密钥模式 (推荐)?", default=False
-                )
 
             ssh_password = None
             ssh_key_path = None
@@ -176,8 +187,11 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
             panel_base, jupyter_token = _parse_jupyter_token(instance.autopanel_url)
             ok(f"  AutoPanel base: {panel_base}")
 
-            info("\n[在浏览器里] 打开 AutoPanel,如果显示登录页请输入独立密码...")
-            info("[在浏览器里] 如果已经直接进 AutoPanel 主页,则无需任何操作")
+            if autopanel_password:
+                info("\n[autopanel] 打开 AutoPanel, 自动填入独立密码...")
+            else:
+                info("\n[在浏览器里] 打开 AutoPanel,如果显示登录页请输入独立密码...")
+                info("[在浏览器里] 如果已经直接进 AutoPanel 主页,则无需任何操作")
 
             captured = {"pwd_sha1": "", "token": ""}
 
@@ -222,8 +236,26 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
             page.goto(instance.autopanel_url,
                       wait_until="domcontentloaded", timeout=30000)
 
+            # 自动填密码 (如果提供了 --autopanel-password / env var)
+            if autopanel_password and not captured["token"]:
+                page.wait_for_timeout(2000)  # 让 SPA 渲染登录表单
+                try:
+                    # AutoPanel 用普通 password input + 回车提交
+                    pwd_input = page.locator(
+                        'input[type="password"], input[placeholder*="密码"], '
+                        'input[placeholder*="独立"]'
+                    ).first
+                    pwd_input.fill(autopanel_password, timeout=8000)
+                    page.wait_for_timeout(300)
+                    pwd_input.press("Enter")
+                    ok("  自动提交独立密码")
+                except Exception as e:
+                    warn(f"  自动填密码失败 ({e}),回退到手动输入")
+
             import time as _time
-            deadline = _time.time() + 180
+            deadline = _time.time() + (
+                60 if autopanel_password else 180
+            )  # 自动填模式应该几秒就拿到 token
             while _time.time() < deadline and not captured["token"]:
                 page.wait_for_timeout(2000)
             try:
@@ -254,74 +286,44 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
 
             # 8. Quark login (visible browser, may auto-pass via saved session)
             quark_scraper.wait_login(page)
-            # save again to capture Quark cookies
             try:
                 save_storage_state(ctx, paths.storage_state)
             except Exception:
                 pass
 
-            # 8.1 extract Quark cookie from browser and bind to AutoPanel
+            # 8.1 extract Quark cookie from browser
             from kuake.browser.quark_cookie import extract_quark_cookie_header
             quark_cookie = extract_quark_cookie_header(ctx)
             if not quark_cookie:
                 raise ScraperFailed("Could not extract Quark cookies from browser session")
             info(f"  抓到 Quark cookie ({len(quark_cookie)} chars)")
 
-            existing = panel.netdisk_list()
-            if existing:
-                ok(f"  AutoPanel 已绑定 {len(existing)} 个网盘,跳过绑定")
-            else:
-                info("  AutoPanel 上没有网盘,自动绑定 Quark...")
-                try:
+            # 8.2 bind to AutoPanel (供 stage 3 服务器侧下载使用)
+            try:
+                existing = panel.netdisk_list()
+                if existing:
+                    ok(f"  AutoPanel 已绑定 {len(existing)} 个网盘,跳过绑定")
+                else:
+                    info("  AutoPanel 上没有网盘,自动绑定 Quark...")
                     panel.bind_quark(quark_cookie)
                     ok("  Quark 网盘已绑定 AutoPanel")
-                except Exception as e:
-                    raise UserInputError(f"Quark 绑定失败(cookie 可能过期): {e}")
-                # verify
-                after = panel.netdisk_list()
-                if not after:
-                    raise ScraperFailed("绑定后 netdisk_list 仍为空")
-
-            # Use panel API to list /我的备份/ contents (more reliable than web scrape)
-            folders: list[str] = []
-            try:
-                beifen = panel.find_by_path("/我的备份")
-                if beifen:
-                    items = panel.list_dir(beifen["file_id"])
-                    folders = [it["name"] for it in items if it.get("is_dir")]
-                    if folders:
-                        ok(f"  从 AutoPanel 查到 /我的备份/ 下有 {len(folders)} 个目录")
             except Exception as e:
-                warn(f"  AutoPanel 查 /我的备份/ 失败 {e},回退到网页抓取")
-                try:
-                    folders = quark_scraper.list_backup_folders(page)
-                except Exception as e2:
-                    warn(f"  网页抓取也失败: {e2}")
-                    folders = []
+                # AutoPanel 绑定失败不致命 — push stage 2 (上传) 不需要 AutoPanel,
+                # 只有 stage 3 (服务器侧下载) 需要,届时会再次报错
+                warn(f"  AutoPanel 绑定/查询失败 ({e}),稍后跑 push 时再处理")
 
-            if folders:
-                console.print("\n[bold]检测到夸克备份目录:[/bold]")
-                for i, n in enumerate(folders, 1):
-                    console.print(f"  [{i}] {n}")
-                qidx = _prompt_index("选择 PC 备份目录", len(folders))
-                pc_folder = folders[qidx]
+            # 9. cloud upload target — v0.4 起不再依赖夸克 PC 客户端备份目录,
+            #    直接用 API 上传到自定义路径,默认 /kuake-uploads
+            if cloud_dir is not None:
+                cloud_backup_path = cloud_dir
+                ok(f"  使用 --cloud-dir: {cloud_backup_path}")
             else:
-                console.print("\n[yellow]无法自动列出夸克备份目录(可能 DOM 改版或你账号下没设备备份)[/yellow]")
-                console.print("[dim]去夸克网盘看「/我的备份/」下有什么子目录,例如「来自:xxx 电脑备份」[/dim]")
-                pc_folder = _safe_prompt(
-                    "请手输夸克备份目录的全名(不含/我的备份/前缀)"
+                cloud_backup_path = _safe_prompt(
+                    "云端上传目录 (会自动创建,不需先在客户端配置)",
+                    default="/kuake-uploads",
                 )
-            subname = _safe_prompt(
-                "备份子目录名 (本地夸克客户端备份的目录名)", default="UPLOAD"
-            )
-            cloud_backup_path = f"/我的备份/{pc_folder}/{subname}"
-
-            # 9. local backup dir
-            default_local = str(Path.home() / "Downloads" / subname)
-            local_backup_dir = _safe_prompt(
-                "本地夸克客户端备份目录", default=default_local
-            )
-            Path(local_backup_dir).mkdir(parents=True, exist_ok=True)
+            if not cloud_backup_path.startswith("/"):
+                cloud_backup_path = "/" + cloud_backup_path
 
             # 10. test SSH
             info("测试 SSH 连接...")
@@ -339,7 +341,6 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
                 user=instance.ssh_user,
                 auth_mode="key" if use_key else "password",
                 panel_base=panel_base, fs_id="quark1",
-                local_backup_dir=local_backup_dir,
                 cloud_backup_path=cloud_backup_path,
                 remote_tmp_dir="/root/autodl-tmp",
                 created_at=datetime.now().isoformat(timespec="seconds"),
@@ -358,13 +359,11 @@ def run(no_smoke: bool = False, ssh_key: bool = False,
             save_storage_state(ctx, paths.storage_state)
             ok(f"配置已写入 {paths.home}")
 
-            # 12. smoke test (reuse already-signed-in panel client)
+            # 12. smoke test — 直接上传 1KB 文件验证 Quark API + cookie 可用
             if not no_smoke:
                 from kuake.browser.smoke_test import run_smoke_test
-                if run_smoke_test(Path(local_backup_dir), cloud_backup_path, panel):
-                    ok("Smoke test 通过 — 配置可用")
-                else:
-                    warn("Smoke test 未通过 — 请检查夸克客户端,但配置已保存")
+                if not run_smoke_test(quark_cookie, cloud_backup_path):
+                    warn("Smoke test 未通过 — 配置已保存,但首次 push 可能失败")
             else:
                 info("已跳过 smoke test (--no-smoke)")
 

@@ -1,16 +1,17 @@
 """Playwright session lifecycle + storage_state IO."""
 from __future__ import annotations
+
 import json
 import os
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Optional
 
 from kuake.config import config_paths
 
 
-def system_chrome_user_data_dir() -> Optional[Path]:
+def system_chrome_user_data_dir() -> Path | None:
     """Return the path to the user's normal Chrome profile, if it exists.
     Useful for `--use-system-chrome` to reuse already-logged-in sessions.
 
@@ -29,7 +30,7 @@ def system_chrome_user_data_dir() -> Optional[Path]:
 @contextmanager
 def launch_browser(
     headless: bool = False,
-    storage_state: Optional[Path] = None,
+    storage_state: Path | None = None,
     use_system_chrome: bool = False,
 ) -> Iterator:
     """Launch Chromium and yield (browser_context, playwright_instance).
@@ -85,7 +86,7 @@ def launch_browser(
                     pass
 
 
-def save_storage_state(context, path: Optional[Path] = None) -> Path:
+def save_storage_state(context, path: Path | None = None) -> Path:
     """Atomic write storage_state.json. Default path: ~/.kuake/state/storage_state.json"""
     if path is None:
         path = config_paths().storage_state

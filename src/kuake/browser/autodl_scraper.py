@@ -1,15 +1,17 @@
 """Scrape AutoDL console: login wait, instance list, SSH info, AutoPanel URL."""
 from __future__ import annotations
+
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 from kuake.browser.selectors import (
-    AUTODL_LOGIN_URL, AUTODL_CONSOLE_URL,
-    AUTODL_LOGGED_IN, AUTODL_INSTANCE_ROW,
-    AUTODL_INSTANCE_SSH, AUTODL_INSTANCE_PASSWORD,
-    AUTODL_AUTOPANEL_LINK, AUTODL_QR_TAB,
-    AUTODL_WECHAT_FAST_LOGIN, try_locators,
+    AUTODL_CONSOLE_URL,
+    AUTODL_INSTANCE_ROW,
+    AUTODL_LOGGED_IN,
+    AUTODL_LOGIN_URL,
+    AUTODL_QR_TAB,
+    AUTODL_WECHAT_FAST_LOGIN,
+    try_locators,
 )
 from kuake.errors import ScraperFailed
 from kuake.progress import info, ok
@@ -22,7 +24,7 @@ class InstanceInfo:
     ssh_port: int
     ssh_user: str
     ssh_password: str
-    autopanel_url: Optional[str]
+    autopanel_url: str | None
 
 
 def _parse_row_meta(row_text: str) -> dict:
@@ -187,7 +189,7 @@ def extract_instance_details(page, row_index: int, row_selector: str) -> Instanc
     host, port, user = parse_ssh_command(ssh_text)
 
     # AutoPanel URL via new-page interception (button opens new tab)
-    autopanel_url: Optional[str] = None
+    autopanel_url: str | None = None
     try:
         cell_actions = row.locator("td").nth(8)
         panel_btn = cell_actions.locator("button:has-text('AutoPanel')").first

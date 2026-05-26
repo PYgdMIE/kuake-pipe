@@ -6,12 +6,81 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **`kuake grab` v2** — 找到匹配机器 → 生成完整 `/api/v1/order/instance/create/payg` payload → 落盘到 `~/.kuake/plans/`,**绝不下单**
+  - 新选项: `--gpu-count`, `--expand-data-disk`, `--system-disk-expand`, `--image`, `--any-region`
+  - 旧 `--auto-create` 行为废弃,统一改成 PLAN 模式
+- **`kuake clone <source>`** — 从已有实例的 detail 提取镜像/GPU/扩容配置,在市场上找一台空闲机器生成"开同款"PLAN(dry-run)
+  - 源实例可用 1-based 索引或 uuid 前缀
+  - `--same-region` 限制只在源实例同区找
+- **`kuake confirm-create --plan-file <p.json>`** — 唯一会真下单的入口
+  - 需输入字面 `YES`(大写),其它任何输入(含 `y` / `yes`)都会取消
+  - 显示扣费提示 + 单价 + 完整 plan
+- **AutoDL JWT 加载** — `kuake.autodl_api.load_jwt_from_storage_state()` 从 `localStorage.token` 提取,补全旧 cookie-only 鉴权的不足
+- **`kuake.autodl_planner`** — 纯 dataclass + 序列化,plan 与发送完全解耦
+- **测试**: +21 个 (autodl_planner + grab + clone + confirm-create 安全门),总 143/143 通过,覆盖 53%
+
 ### Roadmap
 - Multi-profile native support (currently via `KUAKE_HOME`)
-- Smoke test cloud cleanup (discover Quark delete endpoint)
-- macOS verification on physical hardware
-- Optional: direct Quark cloud upload (bypass PC client)
+- Quark cloud delete endpoint (cleanup uploaded smoke / push files)
+- True parallel multipart upload (compute incremental `x-oss-hash-ctx`)
+- Resume-on-failure for uploads (persist `upload_id` + `etags`)
+- 阿里云盘 (Aliyun pan) 作为 Quark 之外的备选上传后端
+- AutoDL 深挖: 实例克隆 API 直查 / 磁盘扩容 API / 镜像列表 / 优惠券应用
 - PyPI publishing automation via GitHub Actions
+
+---
+
+## [0.4.0] — 2026-05-26
+
+**Breaking**: 砍掉夸克 PC 客户端「备份」功能依赖,改用 cookie 鉴权的直接 Quark Cloud API 上传。Linux / headless / CI 环境现在都能跑。
+
+### Added
+
+- **`kuake/quark_uploader.py`** — 纯 HTTP 直接上传到 Quark Cloud
+  - 协议逆向自 pan.quark.cn 网页版(2026-05),上传走 `{bucket}.pds.quark.cn`(原 `quarkpan` 库 hardcode 的 `oss-cn-shenzhen.aliyuncs.com` 已失效)
+  - 支持单分片(<5MB)和多分片(>=5MB,4MB 块)路径
+  - 秒传检测(MD5+SHA1)
+  - 自动创建云端目标目录(`resolve_or_create_folder`)
+- 9 个新单测(`tests/test_quark_uploader.py`)覆盖正常路径 + 失败注入 + endpoint 回归测试
+
+### Changed
+
+- **`kuake init` 全自动化 flags** — 除两次 QR 扫码外,其它步骤都能脚本化:
+  - `--instance N` 跳过实例选择交互
+  - `--autopanel-password PWD` 或 `KUAKE_AUTOPANEL_PASSWORD` env var,Playwright 自动填表
+  - `--cloud-dir PATH` 跳过云端目录 prompt
+  - `--ssh-key` 显式选密钥模式 (默认 password,不再弹 Confirm)
+- **`kuake push` stage 2** 不再轮询夸克客户端同步,直接 HTTP PUT 到云端
+  - 打包目录从 `local_backup_dir` 改成 `KUAKE_HOME/staging/` (自动建)
+  - stage 2 失败模式从「1 小时超时」改成「立刻报错」(上传协议直接返回 HTTP 错误)
+- **`kuake init`** 不再问「PC 备份目录 / 子目录 / 本地备份目录」3 个 prompt
+  - 只问 1 个:云端上传目录(默认 `/kuake-uploads`)
+  - smoke test 改为直接上传 1KB 文件验证 cookie 链路,不需要 GUI 客户端在跑
+- **`kuake doctor`** 第 3 项从「本地备份目录可写」改成「打包暂存目录可写」(`KUAKE_HOME/staging`)
+- **`kuake/platform_guard.py`** 不再拦截 Linux(夸克客户端依赖已删)
+- **Config schema**: `quark.local_backup_dir` 字段废弃(保留兼容旧 config 读取,新 init 不再写出)
+
+### Removed
+
+- `kuake/browser/smoke_test.py` 旧版「等夸克客户端同步」逻辑(替换为直接上传验证)
+- `PlatformUnsupported` 异常类不再抛出(保留 import 路径兼容)
+
+### Fixed
+
+- macOS / Linux 用户不再被夸克 PC 客户端「备份」功能的 GUI 设置卡住
+- `kuake push` 大幅提速:不再有 stage 2 的 60s+ 轮询等待
+
+### Migration from 0.3.x
+
+- 旧 config 的 `quark.local_backup_dir` 字段会被静默忽略,无需手动改
+- 旧 `cloud_backup_path`(`/我的备份/.../UPLOAD`)继续可用 — 新版会上传到这个路径
+- 全新安装建议跑 `kuake reset --keep-credentials && kuake init` 重新走简化流程
+
+### Tests
+
+- 99 unit + mock 集成测试通过(原 90 + 新 9)
+- 端到端验证:Quark 直接上传 protocol(单分片 / 多分片 / 秒传)在真账号上跑通
 
 ---
 
@@ -119,7 +188,8 @@ Initial implementation.
 - (Linux unsupported: Quark has no Linux client)
 - Python 3.9+
 
-[Unreleased]: https://github.com/PYgdMIE/kuake-pipe/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/PYgdMIE/kuake-pipe/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/PYgdMIE/kuake-pipe/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/PYgdMIE/kuake-pipe/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/PYgdMIE/kuake-pipe/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/PYgdMIE/kuake-pipe/releases/tag/v0.1.0

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kuake-pipe"
-version = "0.3.0"
-description = "Automated local -> Quark cloud -> AutoDL server data transfer pipeline"
+version = "0.4.0"
+description = "Automated local -> Quark cloud -> AutoDL server data transfer pipeline (no GUI client needed)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
@@ -14,8 +14,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: Microsoft :: Windows",
-    "Operating System :: MacOS",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -36,6 +35,8 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "requests-mock>=1.10",
+    "ruff>=0.5",
+    "mypy>=1.10",
 ]
 
 [project.scripts]
@@ -52,3 +53,39 @@ packages = ["src/kuake"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --strict-markers"
+
+[tool.ruff]
+line-length = 110
+target-version = "py39"
+exclude = ["scripts/probe_quark_upload.py", ".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long — already enforced softly via line-length
+    "B008",  # function call in default arg (常用于 typer/argparse 默认值)
+    "B904",  # raise from in except — 已有显式 `from e` 处都用了
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # 测试文件经常重排 imports
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false
+warn_unused_ignores = true
+ignore_missing_imports = true
+exclude = ['^scripts/', '^tests/']
+files = ["src/kuake"]
+# 渐进式 typing:开 quark_uploader 严格,其它先宽松
+[[tool.mypy.overrides]]
+module = "kuake.quark_uploader"
+strict_optional = true
+disallow_untyped_defs = true

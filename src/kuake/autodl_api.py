@@ -1,24 +1,54 @@
 """AutoDL.com web API client (separate from AutoPanel).
 
-Discovered endpoints:
-  POST /api/v1/user/machine/list  — list available machines (filter by region/GPU)
+Discovered endpoints (2026-05):
+  POST /api/v1/instance              — list user's existing instances
+  POST /api/v1/user/machine/list     — list available machines (filter by region/GPU)
   POST /api/v1/machine/region/gpu_type — region-level GPU quotas
-  POST /api/v1/instance/create — TBD (capture by clicking 立即购买)
+  GET  /api/v1/region/list           — region enum
+  POST /api/v1/order/instance/create/payg — create PAYG instance (BILLED!)
 
-Auth: relies on session cookies from a logged-in browser (AutoDL session).
-Pass them via the `cookies` arg or extract from a Playwright context.
+Auth: 需要 JWT in `Authorization` header(在 localStorage.token 里),
+单纯 cookies 不够,会 `AuthorizeFailed: 登录超时`。
+
+用法:
+  from kuake.autodl_api import AutoDLClient, load_jwt_from_storage_state
+  client = AutoDLClient(jwt=load_jwt_from_storage_state())
 """
 from __future__ import annotations
-import time
+
+import json
 from dataclasses import dataclass
-from typing import List, Optional
+from pathlib import Path
+from typing import Any
 
 import requests
 
 from kuake.errors import NetworkError
 
-
 AUTODL_BASE = "https://www.autodl.com"
+
+
+def load_jwt_from_storage_state(storage_state_path: Path | None = None) -> str:
+    """从 Playwright storage_state JSON 抽取 localStorage.token (AutoDL JWT)。
+
+    storage_state_path 默认走 KUAKE_HOME/state/storage_state.json。
+    """
+    if storage_state_path is None:
+        from kuake.config import config_paths
+        storage_state_path = config_paths().storage_state
+    if not storage_state_path.exists():
+        raise NetworkError(
+            f"storage_state missing: {storage_state_path}; run `kuake init` first"
+        )
+    data = json.loads(storage_state_path.read_text(encoding="utf-8"))
+    for o in data.get("origins", []):
+        if "autodl.com" in o.get("origin", ""):
+            for item in o.get("localStorage", []):
+                if item.get("name") == "token":
+                    return item.get("value", "")
+    raise NetworkError(
+        "未在 storage_state.localStorage 找到 AutoDL token — 跑 `kuake init` 重扫"
+    )
 
 
 @dataclass
@@ -26,22 +56,30 @@ class MachineMatch:
     machine_id: str
     machine_alias: str
     region_name: str
+    region_sign: str
     gpu_name: str
     gpu_total: int
     gpu_idle: int
     chip_corp: str  # 'nvidia' / 'cpu'
+    payg_price: int = 0          # 单位:分,即 0.01 元
+    cpu_limit: int = 0
+    mem_limit_in_byte: int = 0
+    raw: dict[str, Any] | None = None  # 原始 dict (含未明确暴露字段)
 
     def __str__(self) -> str:
+        price_yuan = self.payg_price / 100 if self.payg_price else 0
         return (
             f"{self.region_name}/{self.machine_alias}  "
-            f"{self.gpu_name} ({self.gpu_idle}/{self.gpu_total} free)"
+            f"{self.gpu_name} ({self.gpu_idle}/{self.gpu_total} free)  "
+            f"¥{price_yuan:.2f}/h"
         )
 
 
 class AutoDLClient:
     """Lightweight client for the AutoDL.com web API."""
 
-    def __init__(self, cookies: Optional[dict] = None, timeout: int = 15):
+    def __init__(self, jwt: str | None = None, cookies: dict | None = None,
+                 timeout: int = 15):
         self.s = requests.Session()
         if cookies:
             for k, v in cookies.items():
@@ -53,7 +91,52 @@ class AutoDLClient:
             "Referer": f"{AUTODL_BASE}/market/list",
             "User-Agent": "Mozilla/5.0 (kuake-pipe) Chrome/148.0.0.0",
         })
+        if jwt:
+            self.s.headers["Authorization"] = jwt
         self.timeout = timeout
+
+    def _post(self, path: str, body: dict) -> dict:
+        try:
+            r = self.s.post(f"{AUTODL_BASE}{path}", json=body, timeout=self.timeout)
+        except requests.exceptions.RequestException as e:
+            raise NetworkError(f"AutoDL {path} failed: {e}") from e
+        r.raise_for_status()
+        j = r.json()
+        if j.get("code") not in ("Success", "OK", "success"):
+            raise NetworkError(f"AutoDL {path}: {j.get('msg')} (code={j.get('code')})")
+        return j.get("data") or {}
+
+    def _get(self, path: str, params: dict | None = None) -> dict:
+        try:
+            r = self.s.get(f"{AUTODL_BASE}{path}", params=params or {},
+                           timeout=self.timeout)
+        except requests.exceptions.RequestException as e:
+            raise NetworkError(f"AutoDL {path} failed: {e}") from e
+        r.raise_for_status()
+        j = r.json()
+        if j.get("code") not in ("Success", "OK", "success"):
+            raise NetworkError(f"AutoDL {path}: {j.get('msg')} (code={j.get('code')})")
+        return j.get("data") or {}
+
+    def list_instances(self, page_size: int = 50) -> list[dict]:
+        """List user's existing AutoDL instances (full detail dict per item)."""
+        data = self._post("/api/v1/instance", {
+            "date_from": "", "date_to": "", "page_index": 1, "page_size": page_size,
+            "status": [], "charge_type": [],
+        })
+        return data.get("list") or []
+
+    def get_instance(self, uuid: str) -> dict | None:
+        """Get one instance by uuid (returned shape same as list entry).
+        Returns None if not found."""
+        for inst in self.list_instances():
+            if inst.get("uuid") == uuid:
+                return inst
+        return None
+
+    def wallet_balance(self) -> dict:
+        """Returns wallet info {balance_xxx, ...} for dry-run cost preview."""
+        return self._get("/api/v1/wallet/balance")
 
     # ── Default Docker images per chip (PyTorch latest) ─────────────────
     DEFAULT_IMAGE_NVIDIA = (
@@ -69,7 +152,7 @@ class AutoDLClient:
         self,
         machine_id: str,
         req_gpu_amount: int = 1,
-        image: Optional[str] = None,
+        image: str | None = None,
         chip_corp: str = "nvidia",
     ) -> dict:
         """POST /api/v1/order/instance/create/payg — create a pay-as-you-go instance.
@@ -111,12 +194,12 @@ class AutoDLClient:
 
     def list_available(
         self,
-        gpu_type_names: Optional[List[str]] = None,
-        region_sign_list: Optional[List[str]] = None,
+        gpu_type_names: list[str] | None = None,
+        region_sign_list: list[str] | None = None,
         min_idle_gpu: int = 1,
         charge_type: str = "payg",
         page_size: int = 20,
-    ) -> List[MachineMatch]:
+    ) -> list[MachineMatch]:
         """List machines matching the filters. Returns only those with
         gpu_idle_num >= min_idle_gpu."""
         body = {
@@ -153,7 +236,7 @@ class AutoDLClient:
         if j.get("code") not in ("Success", "OK", "success"):
             raise NetworkError(f"AutoDL market list error: {j}")
         items = (j.get("data", {}) or {}).get("list", []) or []
-        out: List[MachineMatch] = []
+        out: list[MachineMatch] = []
         for m in items:
             idle = int(m.get("gpu_idle_num", 0))
             if idle >= min_idle_gpu:
@@ -161,9 +244,14 @@ class AutoDLClient:
                     machine_id=m.get("machine_id", ""),
                     machine_alias=m.get("machine_alias", ""),
                     region_name=m.get("region_name", ""),
+                    region_sign=m.get("region_sign", ""),
                     gpu_name=m.get("gpu_name", ""),
                     gpu_total=int(m.get("gpu_number", 0)),
                     gpu_idle=idle,
                     chip_corp=m.get("chip_corp", ""),
+                    payg_price=int(m.get("payg_price", 0)),
+                    cpu_limit=int(m.get("cpu_limit", 0)),
+                    mem_limit_in_byte=int(m.get("mem_limit_in_byte", 0)),
+                    raw=m,
                 ))
         return out

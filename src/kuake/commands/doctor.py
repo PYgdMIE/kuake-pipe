@@ -1,14 +1,14 @@
 """Full-stack health check."""
 from __future__ import annotations
+
 import os
 import sys
-from pathlib import Path
 
 import requests
 
 from kuake.config import config_paths, read_config, read_credentials
 from kuake.errors import KuakeError
-from kuake.progress import ok, warn, err, console
+from kuake.progress import console, err, ok, warn
 from kuake.proxy import requests_proxies
 
 
@@ -35,12 +35,16 @@ def run() -> None:
         err(f"[2/12] 配置损坏: {e}")
         sys.exit(2)
 
-    # 3. local backup dir writable
-    local = Path(cfg.local_backup_dir)
-    if local.exists() and os.access(local, os.W_OK):
-        ok(f"[3/12] 本地备份目录可写: {local}")
+    # 3. staging dir writable (v0.4: 不再依赖夸克客户端备份目录,只需 KUAKE_HOME/staging 可写)
+    staging = paths.home / "staging"
+    try:
+        staging.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    if staging.exists() and os.access(staging, os.W_OK):
+        ok(f"[3/12] 打包暂存目录可写: {staging}")
     else:
-        err(f"[3/12] 本地备份目录不可写: {local}")
+        err(f"[3/12] 打包暂存目录不可写: {staging}")
         issues += 1
 
     # 4. Quark reachable

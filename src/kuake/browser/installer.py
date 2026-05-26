@@ -1,10 +1,10 @@
 """Detect Chromium presence; if absent, install via best-available mirror."""
 from __future__ import annotations
+
 import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 import requests
 
@@ -30,7 +30,7 @@ def chromium_installed() -> bool:
     return any(p.name.startswith("chromium") for p in cache.iterdir())
 
 
-def pick_mirror(timeout: float = 3.0) -> Optional[str]:
+def pick_mirror(timeout: float = 3.0) -> str | None:
     for url in MIRRORS:
         try:
             r = requests.head(url, timeout=timeout, allow_redirects=True)

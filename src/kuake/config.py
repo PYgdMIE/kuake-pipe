@@ -1,10 +1,10 @@
 """Persistent config + credentials with atomic writes and ACL hardening."""
 from __future__ import annotations
+
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 try:
     import tomllib
@@ -13,7 +13,7 @@ except ImportError:  # Python < 3.11
 
 import tomli_w
 
-from kuake.errors import ConfigMissing, ConfigCorrupt
+from kuake.errors import ConfigCorrupt, ConfigMissing
 from kuake.platform_guard import harden_file_acl
 
 
@@ -25,17 +25,18 @@ class Config:
     auth_mode: str          # "password" or "key"
     panel_base: str
     fs_id: str              # quark fs id, default "quark1"
-    local_backup_dir: str
-    cloud_backup_path: str
+    cloud_backup_path: str  # 上传目标云端路径,例如 "/kuake-uploads"
     remote_tmp_dir: str
     created_at: str = ""
     last_refresh: str = ""
+    # 兼容旧 0.3 config 的字段, 不再使用 (留 None 避免读取报错)
+    local_backup_dir: str = ""
 
 
 @dataclass(frozen=True)
 class Credentials:
-    ssh_password: Optional[str]
-    ssh_key_path: Optional[str]
+    ssh_password: str | None
+    ssh_key_path: str | None
     panel_authorization: str       # session_token from sign_in (Authorization header)
     panel_autodl_token: str        # JupyterLab token (AutodlAutoPanelToken header)
     expires_estimate: str          # ISO8601
@@ -85,7 +86,6 @@ def write_config(cfg: Config) -> None:
         },
         "panel": {"base": data["panel_base"], "fs_id": data["fs_id"]},
         "quark": {
-            "local_backup_dir": data["local_backup_dir"],
             "cloud_backup_path": data["cloud_backup_path"],
         },
         "remote": {"tmp_dir": data["remote_tmp_dir"]},
@@ -113,8 +113,8 @@ def read_config() -> Config:
             auth_mode=data["instance"]["auth_mode"],
             panel_base=data["panel"]["base"],
             fs_id=data["panel"].get("fs_id", "quark1"),
-            local_backup_dir=data["quark"]["local_backup_dir"],
             cloud_backup_path=data["quark"]["cloud_backup_path"],
+            local_backup_dir=data["quark"].get("local_backup_dir", ""),
             remote_tmp_dir=data["remote"]["tmp_dir"],
             created_at=data.get("meta", {}).get("created_at", ""),
             last_refresh=data.get("meta", {}).get("last_refresh", ""),

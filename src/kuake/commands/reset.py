@@ -1,5 +1,6 @@
 """Clear ~/.kuake/ with confirmation."""
 from __future__ import annotations
+
 import shutil
 
 from kuake.config import config_paths

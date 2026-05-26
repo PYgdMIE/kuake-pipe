@@ -11,19 +11,19 @@ This makes diagnosing real-world issues across machines straightforward —
 hand the log file to the dev, they see the entire timeline.
 """
 from __future__ import annotations
-import os
+
 import logging
+import os
 import platform
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
-_LOG_PATH: Optional[Path] = None
-_root_logger: Optional[logging.Logger] = None
+_LOG_PATH: Path | None = None
+_root_logger: logging.Logger | None = None
 
 
-def _setup_once() -> Optional[logging.Logger]:
+def _setup_once() -> logging.Logger | None:
     global _LOG_PATH, _root_logger
     if _root_logger is not None:
         return _root_logger
@@ -69,7 +69,7 @@ def get_logger(name: str = "kuake"):
     return logging.getLogger(name)
 
 
-def log_path() -> Optional[Path]:
+def log_path() -> Path | None:
     """Path of the active debug log, or None if disabled."""
     _setup_once()
     return _LOG_PATH

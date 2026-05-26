@@ -1,13 +1,20 @@
 """rich.progress wrappers for stage progress + status spinners."""
 from __future__ import annotations
+
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator, Optional, Callable
+from typing import Callable
 
 from rich.console import Console
 from rich.progress import (
-    Progress, BarColumn, TextColumn, TimeRemainingColumn,
-    TransferSpeedColumn, DownloadColumn, SpinnerColumn,
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
 )
 
 console = Console()
@@ -36,7 +43,7 @@ def stage(title: str) -> Iterator[None]:
 
 
 @contextmanager
-def transfer(title: str, total: Optional[int] = None) -> Iterator[Callable]:
+def transfer(title: str, total: int | None = None) -> Iterator[Callable]:
     """Show a transfer progress bar. Returns an update(advance, total=None) callable."""
     with Progress(
         TextColumn("[bold blue]{task.description}"),
@@ -48,7 +55,7 @@ def transfer(title: str, total: Optional[int] = None) -> Iterator[Callable]:
     ) as prog:
         task = prog.add_task(title, total=total)
 
-        def update(advance: int = 0, total: Optional[int] = None):
+        def update(advance: int = 0, total: int | None = None):
             if total is not None:
                 prog.update(task, total=total)
             if advance:

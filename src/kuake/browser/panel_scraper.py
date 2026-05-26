@@ -1,5 +1,6 @@
 """Navigate to AutoPanel URL, intercept first /autopanel/v1/* request, extract auth headers."""
 from __future__ import annotations
+
 from dataclasses import dataclass
 
 from kuake.errors import ScraperFailed

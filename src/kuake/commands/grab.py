@@ -1,68 +1,69 @@
-"""Poll the AutoDL market for available GPU/CPU machines and (optionally) grab one.
+"""Poll AutoDL market for GPU/CPU/region matches and build a create PLAN.
+
+v0.4+: 默认 dry-run, **绝不下单**。
+- 找到匹配机器后,生成完整 POST 请求 body
+- 打印 plan 供你审计
+- 落盘到 ~/.kuake/plans/<timestamp>.json
+- 想真下单, 跑 `kuake confirm-create --plan-file ...`(需要二次确认 + 已扣费风险提示)
 
 Usage:
-  kuake grab                           # poll every 5s for any GPU
-  kuake grab --gpu "RTX 5090"          # specific GPU
-  kuake grab --gpu "RTX 5090" --gpu "RTX 4090"   # any of these
-  kuake grab --region west-B           # only this region
-  kuake grab --cpu-ok                  # accept CPU instances too
-  kuake grab --poll 3                  # poll every 3s
+  kuake grab                            # 任何 GPU,任何区,1 张空闲
+  kuake grab --gpu "RTX 5090"           # 仅 RTX 5090
+  kuake grab --gpu "RTX PRO 6000" --gpu "RTX 5090"
+  kuake grab --any-region               # 显式声明不限制区(其实默认就不限)
+  kuake grab --region west-B --region west-D
+  kuake grab --cpu-ok                   # 也接受 CPU
+  kuake grab --min-idle 2               # 至少 2 张空闲卡
+  kuake grab --gpu-count 2              # 创建时要 2 张
+  kuake grab --expand-data-disk 100     # 扩 100 GB 数据盘
+  kuake grab --system-disk-expand 20    # 扩 20 GB 系统盘
+  kuake grab --poll 3 --max-iter 100
 """
 from __future__ import annotations
-import json
+
 import time
-from pathlib import Path
-from typing import List, Optional
+from datetime import datetime
 
+from kuake.autodl_api import AutoDLClient, load_jwt_from_storage_state
+from kuake.autodl_planner import (
+    InstancePlan,
+    format_plan,
+    plan_from_match,
+    save_plan,
+)
 from kuake.config import config_paths
-from kuake.errors import ConfigMissing
-from kuake.progress import info, ok, warn, console
-
-
-def _load_autodl_cookies() -> dict:
-    """Read autodl.com cookies from the saved Playwright storage_state."""
-    state_path = config_paths().storage_state
-    if not state_path.exists():
-        raise ConfigMissing(
-            f"storage_state missing ({state_path}); run `kuake init` first"
-        )
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except Exception as e:
-        raise ConfigMissing(f"storage_state unreadable: {e}") from e
-    cookies = {}
-    for c in state.get("cookies", []):
-        domain = c.get("domain", "")
-        if "autodl.com" in domain:
-            cookies[c["name"]] = c.get("value", "")
-    return cookies
+from kuake.errors import ConfigMissing, NetworkError
+from kuake.progress import console, info, ok, warn
 
 
 def run(
-    gpu_types: Optional[List[str]] = None,
-    regions: Optional[List[str]] = None,
+    gpu_types: list[str] | None = None,
+    regions: list[str] | None = None,
     cpu_ok: bool = False,
     min_idle_gpu: int = 1,
+    gpu_count: int = 1,
+    expand_data_disk_gb: int = 0,
+    system_disk_change_size_gb: int = 0,
+    image: str | None = None,
     poll_seconds: int = 5,
     max_iterations: int = 0,
-    dry_run: bool = True,
+    **_legacy_flags,  # 吞掉旧的 dry_run / auto_create
 ) -> None:
-    """Poll AutoDL market until a matching machine is found.
-    dry_run=True (default) only reports; does not create an instance."""
-    from kuake.autodl_api import AutoDLClient
+    """Poll until matching machine found, build PLAN, print + save, exit (no submit)."""
+    try:
+        jwt = load_jwt_from_storage_state()
+    except NetworkError as e:
+        raise ConfigMissing(str(e)) from e
 
-    cookies = _load_autodl_cookies()
-    if not cookies:
-        raise ConfigMissing(
-            "No AutoDL cookies in storage_state; run `kuake init` to log in first"
-        )
-    client = AutoDLClient(cookies=cookies)
+    client = AutoDLClient(jwt=jwt)
 
     target = f"GPU={gpu_types or 'any'}, region={regions or 'any'}, min_idle={min_idle_gpu}"
     if cpu_ok:
-        target += ", CPU also OK"
-    info(f"Polling AutoDL market for: {target}  (every {poll_seconds}s)")
-    info("Press Ctrl+C to stop")
+        target += ", CPU 也接受"
+    info(f"轮询 AutoDL 市场: {target} (每 {poll_seconds}s)")
+    info(f"匹配后生成 PLAN (gpu_count={gpu_count}, "
+         f"+{expand_data_disk_gb}G 数据盘, +{system_disk_change_size_gb}G 系统盘)")
+    info("⚠ 仅生成 plan,不下单。Ctrl+C 退出。")
 
     it = 0
     while True:
@@ -73,11 +74,11 @@ def run(
                 region_sign_list=regions,
                 min_idle_gpu=min_idle_gpu,
             )
-        except Exception as e:
-            warn(f"poll #{it} failed: {e}")
-            time.sleep(poll_seconds)
+        except NetworkError as e:
+            warn(f"poll #{it}: {e}")
             if max_iterations and it >= max_iterations:
-                break
+                return
+            time.sleep(poll_seconds)
             continue
 
         if not cpu_ok:
@@ -85,35 +86,37 @@ def run(
 
         if matches:
             console.print()
-            ok(f"找到 {len(matches)} 个可用机器:")
+            ok(f"找到 {len(matches)} 台匹配:")
             for m in matches:
                 console.print(f"  • {m}")
-            console.print()
-            if dry_run:
-                ok("dry-run 模式 — 未创建实例。去 https://www.autodl.com/market/list 手动抢")
-                ok("(或加 --auto-create 自动创建第一台)")
-                return
-            else:
-                target = matches[0]
-                ok(f"自动创建实例: {target.region_name}/{target.machine_alias} "
-                   f"{target.gpu_name} ×{min_idle_gpu}")
-                try:
-                    result = client.create_payg_instance(
-                        machine_id=target.machine_id,
-                        req_gpu_amount=min_idle_gpu,
-                        chip_corp=target.chip_corp,
-                    )
-                    ok(f"创建成功: {result}")
-                    return
-                except Exception as e:
-                    warn(f"创建失败,继续轮询: {e}")
-                    time.sleep(poll_seconds)
-                    continue
-        else:
-            console.print(f"[dim]poll #{it}: 暂无匹配 (next in {poll_seconds}s)[/dim]",
-                          end="\r")
+
+            chosen = matches[0]
+            plan = plan_from_match(
+                chosen,
+                gpu_count=gpu_count,
+                image=image,
+                expand_data_disk_gb=expand_data_disk_gb,
+                system_disk_change_size_gb=system_disk_change_size_gb,
+            )
+            _output_plan(plan)
+            return
+
+        console.print(f"[dim]poll #{it}: 暂无匹配 ({poll_seconds}s 后重试)[/dim]",
+                      end="\r")
         if max_iterations and it >= max_iterations:
             console.print()
-            warn(f"reached max iterations ({max_iterations}), giving up")
+            warn(f"达到最大轮询次数 ({max_iterations}),退出")
             return
         time.sleep(poll_seconds)
+
+
+def _output_plan(plan: InstancePlan) -> None:
+    console.print(format_plan(plan))
+    # 落盘
+    plans_dir = config_paths().home / "plans"
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    plan_path = plans_dir / f"plan_{stamp}.json"
+    save_plan(plan, str(plan_path))
+    ok(f"PLAN 已落盘: {plan_path}")
+    info("→ 真下单需要: kuake confirm-create --plan-file " + str(plan_path))

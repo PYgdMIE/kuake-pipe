@@ -4,14 +4,20 @@ Pure HTTP (no browser) — relies on saved standalone_password_sha1.
 If sha1 is missing or sign_in fails, raises SessionDead so user runs `kuake init`.
 """
 from __future__ import annotations
+
 from dataclasses import asdict
 from datetime import datetime, timedelta
 
-from kuake.config import (
-    config_paths, read_config, read_credentials,
-    write_credentials, write_config, Config, Credentials,
-)
 from kuake.concurrency import FileLock, LockBusy
+from kuake.config import (
+    Config,
+    Credentials,
+    config_paths,
+    read_config,
+    read_credentials,
+    write_config,
+    write_credentials,
+)
 from kuake.errors import ConcurrencyLock, SessionDead
 from kuake.progress import info, ok
 from kuake.proxy import requests_proxies

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from kuake.config import config_paths
 from kuake.errors import ConfigMissing
-from kuake.progress import info, console
+from kuake.progress import console, info
 
 
 def run() -> None:
@@ -13,8 +13,8 @@ def run() -> None:
             f"storage_state missing: {paths.storage_state}; run `kuake init` first"
         )
 
-    from kuake.browser.session import launch_browser
     from kuake.browser import autodl_actions
+    from kuake.browser.session import launch_browser
 
     info("启动 headless 浏览器查询实例列表...")
     with launch_browser(headless=True, storage_state=paths.storage_state) as (ctx, _p):

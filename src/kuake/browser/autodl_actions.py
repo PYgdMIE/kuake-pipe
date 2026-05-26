@@ -1,11 +1,15 @@
 """AutoDL instance lifecycle actions via headless browser + saved storage_state."""
 from __future__ import annotations
+
 import time
-from typing import Optional
 
 from kuake.browser.selectors import (
-    AUTODL_CONSOLE_URL, AUTODL_INSTANCE_ROW, AUTODL_INSTANCE_STATUS,
-    AUTODL_POWER_ON_BUTTON, AUTODL_POWER_OFF_BUTTON, AUTODL_CONFIRM_BUTTON,
+    AUTODL_CONFIRM_BUTTON,
+    AUTODL_CONSOLE_URL,
+    AUTODL_INSTANCE_ROW,
+    AUTODL_INSTANCE_STATUS,
+    AUTODL_POWER_OFF_BUTTON,
+    AUTODL_POWER_ON_BUTTON,
     try_locators,
 )
 from kuake.errors import ScraperFailed
@@ -44,7 +48,7 @@ def list_full(page) -> list[dict]:
     return rows
 
 
-def _extract_status(row_locator) -> Optional[str]:
+def _extract_status(row_locator) -> str | None:
     """Try to read status from within a row locator."""
     for strategy in AUTODL_INSTANCE_STATUS.strategies:
         try:
