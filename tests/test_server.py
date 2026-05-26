@@ -37,14 +37,27 @@ def client(app):
     return app.test_client()
 
 
-def _match(machine_id="m1", price=10000, gpu="RTX 4090"):
+def _match(machine_id="m1", price=10000, gpu="RTX 4090", raw=None):
     return MachineMatch(
         machine_id=machine_id, machine_alias="A1",
         region_name="北京A", region_sign="north-A",
         gpu_name=gpu, gpu_total=8, gpu_idle=2,
         chip_corp="nvidia", payg_price=price,
         cpu_limit=12, mem_limit_in_byte=96 * 1024 ** 3,
-        raw={},
+        raw=raw or {
+            "cpu_per_gpu": 12,
+            "mem_per_gpu": 16 * 1024 ** 3,
+            "gpu_memory": 24 * 1024 ** 3,
+            "max_instance_disk_size": 50 * 1024 ** 3,
+            "disk_type": "SSD",
+            "highest_cuda_version": "12.8",
+            "driver_version": "535.104",
+            "machine_base_info": {
+                "cpu_num": 96, "cpu_name": "Intel Xeon E5-2680",
+                "memory": 128 * 1024 ** 3, "disk_size": 4000 * 1024 ** 3,
+                "os_name": "ubuntu22.04",
+            },
+        },
     )
 
 
@@ -186,3 +199,109 @@ def test_index_serves_html(client):
     assert r.status_code == 200
     assert b"kuake" in r.data
     assert b"\xe6\x8a\xa2\xe5\x8d\xa1" in r.data  # 抢卡 in UTF-8
+
+
+# ── /api/market 详情字段 ─────────────────────────────────────
+
+def test_market_includes_machine_detail(client):
+    fake = MagicMock()
+    fake.list_available.return_value = [_match()]
+    with patch("kuake.server.AutoDLClient", return_value=fake):
+        r = client.get("/api/market")
+    data = r.get_json()
+    d = data["matches"][0]["detail"]
+    assert d["cpu_per_gpu"] == 12
+    assert d["mem_per_gpu_gb"] == 16.0
+    assert d["gpu_memory_gb"] == 24.0
+    assert d["cuda_version_max"] == "12.8"
+    assert d["driver_version"] == "535.104"
+    assert d["os_name"] == "ubuntu22.04"
+
+
+# ── /api/image-presets ────────────────────────────────────────
+
+def test_image_presets_returns_frameworks(client):
+    r = client.get("/api/image-presets")
+    data = r.get_json()
+    assert "PyTorch" in data["frameworks"]
+    pt = data["frameworks"]["PyTorch"]
+    assert "2.8.0" in pt
+    assert "3.12" in pt["2.8.0"]["py"]
+    assert "12.8" in pt["2.8.0"]["cuda"]
+
+
+# ── grab-plan with framework/ver/py/cuda ──────────────────────
+
+def test_grab_plan_renders_image_from_framework(client, kuake_home):
+    fake = MagicMock()
+    fake.list_available.return_value = [_match(machine_id="abc")]
+    with patch("kuake.server.AutoDLClient", return_value=fake):
+        r = client.post("/api/grab-plan", json={
+            "machine_id": "abc",
+            "framework": "PyTorch", "ver": "2.8.0",
+            "py": "3.12", "cuda": "12.8",
+        })
+    data = r.get_json()
+    img = data["summary"]["image"]
+    assert "cuda12.8" in img
+    assert "py312" in img
+    assert "torch2.8.0" in img
+
+
+# ── jobs ──────────────────────────────────────────────────────
+
+def test_jobs_endpoint_empty(client, kuake_home):
+    r = client.get("/api/jobs")
+    assert r.status_code == 200
+    assert r.get_json()["jobs"] == []
+
+
+def test_job_persistence(client, kuake_home):
+    from kuake.server import JobStore
+    store = JobStore(kuake_home)
+    jid = store.create("push", {"task": "t1", "src": "/data"})
+    assert (kuake_home / "jobs" / f"{jid}.json").exists()
+    meta = store.get(jid)
+    assert meta["task"] == "t1"
+    assert meta["status"] == "running"
+
+    store.update(jid, status="completed", exit_code=0)
+    meta = store.get(jid)
+    assert meta["status"] == "completed"
+    assert meta["exit_code"] == 0
+
+    r = client.get("/api/jobs")
+    jobs = r.get_json()["jobs"]
+    assert len(jobs) == 1
+    assert jobs[0]["job_id"] == jid
+
+
+def test_job_single_endpoint(client, kuake_home):
+    from kuake.server import JobStore
+    store = JobStore(kuake_home)
+    jid = store.create("push", {"task": "t1", "src": "/data"})
+    store.log_path(jid).write_text("line 1\nline 2\n", encoding="utf-8")
+    r = client.get(f"/api/jobs/{jid}")
+    data = r.get_json()
+    assert data["meta"]["job_id"] == jid
+    assert "line 1" in data["log"]
+
+
+def test_job_single_unknown_returns_404(client):
+    r = client.get("/api/jobs/nonexistent")
+    assert r.status_code == 404
+
+
+# ── render_image_url ─────────────────────────────────────────
+
+def test_render_image_url_pytorch():
+    from kuake.server import render_image_url
+    url = render_image_url("PyTorch", "2.8.0", "3.12", "12.8")
+    assert "cuda12.8" in url
+    assert "py312" in url
+    assert "torch2.8.0" in url
+
+
+def test_render_image_url_unknown_framework():
+    from kuake.server import render_image_url
+    assert render_image_url("Caffe", "1.0", "3.10", "11.0") == ""

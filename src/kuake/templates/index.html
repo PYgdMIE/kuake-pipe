@@ -6,18 +6,10 @@
 <title>kuake · 抢卡 & 上传</title>
 <style>
   :root {
-    --bg: #0c0d10;
-    --bg-2: #14161b;
-    --bg-3: #1d2027;
-    --line: #2a2e38;
-    --text: #e6e9ef;
-    --dim: #8d94a3;
-    --accent: #ff7a18;
-    --accent-2: #af002d;
-    --green: #4ade80;
-    --red: #f87171;
-    --yellow: #fbbf24;
-    --blue: #60a5fa;
+    --bg: #0c0d10; --bg-2: #14161b; --bg-3: #1d2027;
+    --line: #2a2e38; --text: #e6e9ef; --dim: #8d94a3;
+    --accent: #ff7a18; --accent-2: #af002d;
+    --green: #4ade80; --red: #f87171; --yellow: #fbbf24; --blue: #60a5fa;
     --mono: ui-monospace, 'JetBrains Mono', 'Fira Code', Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
   }
@@ -25,7 +17,6 @@
   html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); height: 100%; }
   body { display: flex; flex-direction: column; min-height: 100vh; }
 
-  /* ── HEADER ─────────────────────────────────── */
   header.topbar {
     display: flex; align-items: center; gap: 24px;
     padding: 18px 32px; border-bottom: 1px solid var(--line);
@@ -35,19 +26,17 @@
   .brand .dot { color: var(--accent); }
   .tabs { display: flex; gap: 4px; margin-left: auto; }
   .tab {
-    padding: 10px 22px; font-family: var(--sans); font-size: 14px;
+    padding: 10px 22px; font-size: 14px;
     background: transparent; color: var(--dim); border: 1px solid transparent;
     border-bottom: 2px solid transparent; cursor: pointer; transition: all .15s;
   }
   .tab:hover { color: var(--text); }
   .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
-  /* ── MAIN LAYOUT ────────────────────────────── */
   main { flex: 1; display: grid; grid-template-columns: 320px 1fr; min-height: 0; }
   .pane { display: none; }
   .pane.active { display: contents; }
 
-  /* ── SIDEBAR ────────────────────────────────── */
   aside.filters {
     border-right: 1px solid var(--line); padding: 24px 22px;
     overflow-y: auto; background: var(--bg-2);
@@ -57,40 +46,28 @@
     color: var(--dim); text-transform: uppercase; font-weight: 600;
   }
   .group { margin-bottom: 22px; }
-  .group label {
-    display: block; margin-bottom: 6px; font-size: 12px; color: var(--dim);
-  }
+  .group label { display: block; margin-bottom: 6px; font-size: 12px; color: var(--dim); }
   .group input, .group select {
     width: 100%; padding: 9px 12px; background: var(--bg-3); color: var(--text);
     border: 1px solid var(--line); border-radius: 4px; font-family: var(--mono);
     font-size: 13px; outline: none;
   }
   .group input:focus, .group select:focus { border-color: var(--accent); }
-  .group .row { display: flex; gap: 8px; }
-  .group .row > * { flex: 1; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-  .chip {
-    padding: 4px 10px; font-size: 11px; background: var(--bg-3);
-    border: 1px solid var(--line); border-radius: 999px; cursor: pointer;
-    user-select: none; transition: all .12s;
-  }
-  .chip:hover { border-color: var(--dim); }
-  .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .group .help { font-size: 11px; color: var(--dim); margin-top: 6px; line-height: 1.5; }
   .toggle { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--bg-3); border-radius: 4px; border: 1px solid var(--line); }
   .toggle input { width: auto; }
-  .toggle .help { font-size: 11px; color: var(--dim); margin-top: 4px; }
 
   .btn {
     width: 100%; padding: 11px 16px; background: var(--accent); color: #fff;
     border: none; border-radius: 4px; font-size: 13px; font-weight: 600;
-    cursor: pointer; transition: filter .12s; font-family: var(--sans);
+    cursor: pointer; transition: filter .12s;
   }
   .btn:hover { filter: brightness(1.15); }
   .btn:disabled { background: var(--bg-3); color: var(--dim); cursor: not-allowed; }
   .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
   .btn.danger { background: var(--accent-2); }
+  .btn.sm { padding: 6px 14px; font-size: 12px; }
 
-  /* ── CONTENT ────────────────────────────────── */
   section.content { padding: 28px 36px; overflow-y: auto; min-width: 0; }
   .statusbar {
     display: flex; align-items: center; gap: 22px; margin-bottom: 18px;
@@ -99,7 +76,6 @@
   }
   .statusbar .pulse {
     width: 8px; height: 8px; border-radius: 50%; background: var(--dim);
-    box-shadow: 0 0 0 0 rgba(255, 122, 24, 0.7); transition: background .2s;
   }
   .statusbar .pulse.live { background: var(--green); animation: pulse 1.5s ease-out infinite; }
   @keyframes pulse {
@@ -108,11 +84,7 @@
   }
   .statusbar .right { margin-left: auto; color: var(--dim); }
 
-  /* ── TABLE ──────────────────────────────────── */
-  table.market {
-    width: 100%; border-collapse: collapse; font-family: var(--mono);
-    font-size: 13px;
-  }
+  table.market { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px; }
   table.market thead th {
     text-align: left; padding: 11px 14px; font-size: 11px; color: var(--dim);
     font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase;
@@ -120,39 +92,41 @@
     position: sticky; top: 0; cursor: pointer; user-select: none;
   }
   table.market thead th:hover { color: var(--text); }
-  table.market tbody td {
-    padding: 12px 14px; border-bottom: 1px solid var(--bg-3);
-  }
-  table.market tbody tr { transition: background .1s; }
-  table.market tbody tr:hover { background: var(--bg-2); }
-  table.market tbody tr.flash {
-    animation: flashGreen 1.5s ease-out;
-  }
+  table.market tbody td { padding: 12px 14px; border-bottom: 1px solid var(--bg-3); }
+  table.market tbody tr.main { transition: background .1s; cursor: pointer; }
+  table.market tbody tr.main:hover { background: var(--bg-2); }
+  table.market tbody tr.main.flash { animation: flashGreen 1.5s ease-out; }
   @keyframes flashGreen {
     0% { background: rgba(74, 222, 128, 0.25); }
     100% { background: transparent; }
   }
-  .gpu-tag {
-    display: inline-block; padding: 2px 8px; border-radius: 3px;
-    font-size: 11px; background: var(--bg-3); color: var(--blue);
+  tr.detail { display: none; background: #0a0b0e; }
+  tr.detail.open { display: table-row; }
+  tr.detail td { padding: 18px 22px; border-bottom: 1px solid var(--bg-3); }
+  .detail-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 20px;
+    font-family: var(--mono); font-size: 12px;
   }
-  .price {
-    color: var(--green); font-variant-numeric: tabular-nums;
-  }
+  .detail-grid .field { display: flex; flex-direction: column; gap: 3px; }
+  .detail-grid .k { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+  .detail-grid .v { color: var(--text); font-size: 13px; }
+  .detail-grid .v.accent { color: var(--blue); }
+  .gpu-tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; background: var(--bg-3); color: var(--blue); }
+  .price { color: var(--green); font-variant-numeric: tabular-nums; }
   .price.high { color: var(--yellow); }
   .price.peak { color: var(--accent); }
-  .idle {
-    font-variant-numeric: tabular-nums; color: var(--dim);
-  }
+  .idle { font-variant-numeric: tabular-nums; color: var(--dim); }
   .idle.full { color: var(--green); font-weight: 600; }
   .lock-btn {
     padding: 6px 12px; background: var(--bg-3); border: 1px solid var(--line);
     color: var(--text); border-radius: 3px; font-size: 11px; cursor: pointer;
-    font-family: var(--sans); transition: all .12s;
+    transition: all .12s;
   }
   .lock-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .expand-caret { color: var(--dim); transition: transform .15s; display: inline-block; width: 12px; }
+  tr.main.open .expand-caret { transform: rotate(90deg); color: var(--accent); }
 
-  /* ── MODAL ──────────────────────────────────── */
+  /* ── modal ── */
   .modal-bg {
     position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 100;
     display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px);
@@ -167,13 +141,10 @@
     display: flex; align-items: center; justify-content: space-between;
   }
   .modal h2 { margin: 0; font-size: 16px; color: var(--accent); }
-  .modal .x {
-    background: transparent; border: none; color: var(--dim); font-size: 22px;
-    cursor: pointer; padding: 0 6px;
-  }
+  .modal .x { background: transparent; border: none; color: var(--dim); font-size: 22px; cursor: pointer; padding: 0 6px; }
   .modal section.body { padding: 22px 24px; }
   .summary-grid { display: grid; grid-template-columns: auto 1fr; gap: 10px 18px; font-size: 13px; margin-bottom: 18px; }
-  .summary-grid .k { color: var(--dim); font-family: var(--sans); }
+  .summary-grid .k { color: var(--dim); }
   .summary-grid .v { font-family: var(--mono); }
   .warning {
     background: rgba(248, 113, 113, 0.08); border-left: 3px solid var(--red);
@@ -182,6 +153,7 @@
   .yes-input { font-family: var(--mono); font-size: 16px; letter-spacing: 3px; text-align: center; }
   .modal footer { padding: 16px 24px; border-top: 1px solid var(--line); display: flex; gap: 10px; }
   .modal footer .btn { flex: 1; }
+
   .toast {
     position: fixed; bottom: 24px; right: 24px; padding: 14px 20px;
     background: var(--bg-2); border-left: 3px solid var(--accent);
@@ -192,15 +164,15 @@
   .toast.error { border-left-color: var(--red); }
   @keyframes slideIn { from { transform: translateX(120%); } to { transform: translateX(0); } }
 
-  /* ── UPLOAD PANE ────────────────────────────── */
+  /* ── push tab ── */
   .dropzone {
-    border: 2px dashed var(--line); border-radius: 8px; padding: 56px 24px;
+    border: 2px dashed var(--line); border-radius: 8px; padding: 36px 24px;
     text-align: center; transition: all .15s; cursor: pointer; margin-bottom: 22px;
   }
   .dropzone.drag { border-color: var(--accent); background: rgba(255,122,24,0.05); }
-  .dropzone .ic { font-size: 38px; color: var(--dim); margin-bottom: 12px; }
-  .dropzone .help { color: var(--dim); font-size: 12px; margin-top: 8px; }
-  .selected-path { font-family: var(--mono); font-size: 13px; color: var(--blue); margin-top: 8px; word-break: break-all; }
+  .dropzone .ic { font-size: 32px; color: var(--dim); margin-bottom: 8px; }
+  .dropzone .help { color: var(--dim); font-size: 11px; margin-top: 6px; }
+  .selected-path { font-family: var(--mono); font-size: 12px; color: var(--blue); margin-top: 8px; word-break: break-all; }
   .log {
     background: #000; color: #d4d4d4; padding: 18px; border-radius: 6px;
     font-family: var(--mono); font-size: 12px; line-height: 1.55;
@@ -211,6 +183,60 @@
   .log .warn { color: var(--yellow); }
   .log .err { color: var(--red); }
   .log .dim { color: var(--dim); }
+
+  .jobs-panel {
+    margin-top: 28px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg-2);
+  }
+  .jobs-panel header {
+    padding: 14px 18px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px;
+  }
+  .jobs-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  .jobs-table td, .jobs-table th { padding: 9px 14px; border-bottom: 1px solid var(--bg-3); text-align: left; }
+  .jobs-table th { color: var(--dim); font-weight: 500; font-size: 10px; text-transform: uppercase; }
+  .jobs-table tr.row { cursor: pointer; }
+  .jobs-table tr.row:hover { background: var(--bg-3); }
+  .status-pill {
+    display: inline-block; padding: 2px 10px; border-radius: 10px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+  }
+  .status-pill.running { background: rgba(96, 165, 250, 0.15); color: var(--blue); }
+  .status-pill.completed { background: rgba(74, 222, 128, 0.15); color: var(--green); }
+  .status-pill.failed { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+  .status-pill.interrupted { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
+
+  /* ── image picker (三级 dropdown 类 AutoDL Web) ── */
+  .image-picker {
+    background: var(--bg-3); border: 1px solid var(--line); border-radius: 4px;
+    padding: 10px 12px; font-family: var(--mono); font-size: 12px;
+    cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between;
+  }
+  .image-picker .label { color: var(--text); }
+  .image-picker .label.placeholder { color: var(--dim); }
+  .image-picker-popup {
+    position: absolute; background: var(--bg-2); border: 1px solid var(--line);
+    border-radius: 6px; box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+    display: flex; min-width: 480px; max-height: 280px; z-index: 50;
+  }
+  .image-picker-popup .col {
+    flex: 1; border-right: 1px solid var(--line); overflow-y: auto;
+    min-width: 110px;
+  }
+  .image-picker-popup .col:last-child { border-right: none; }
+  .image-picker-popup .col h4 {
+    margin: 0; padding: 9px 14px; font-size: 10px; color: var(--dim);
+    background: var(--bg); position: sticky; top: 0; text-transform: uppercase; letter-spacing: 1px;
+  }
+  .image-picker-popup .opt {
+    padding: 8px 14px; cursor: pointer; font-size: 12px;
+    display: flex; align-items: center; justify-content: space-between;
+    transition: background .1s;
+  }
+  .image-picker-popup .opt:hover { background: var(--bg-3); }
+  .image-picker-popup .opt.on { color: var(--blue); }
+  .image-picker-popup .opt.on::after { content: "✓"; font-size: 10px; color: var(--blue); }
 </style>
 </head>
 <body>
@@ -231,9 +257,8 @@
 
 <aside class="filters">
   <h3>过滤条件</h3>
-
   <div class="group">
-    <label>GPU 型号 (留空 = 不限)</label>
+    <label>GPU 型号</label>
     <select id="gpu-preset">
       <option value="">所有</option>
       <option value="TITAN Xp">TITAN Xp</option>
@@ -247,53 +272,46 @@
       <option value="vGPU-48GB">vGPU-48GB</option>
     </select>
   </div>
-
   <div class="group">
     <label>最少空闲张数</label>
     <input type="number" id="min-idle" value="1" min="1" max="8" />
   </div>
-
   <div class="group">
-    <label class="toggle">
-      <input type="checkbox" id="cpu-ok" />
-      <span>也显示 CPU 实例</span>
-    </label>
+    <label class="toggle"><input type="checkbox" id="cpu-ok" /><span>也显示 CPU 实例</span></label>
   </div>
 
   <h3 style="margin-top: 32px;">创建配置</h3>
-
   <div class="group">
-    <label>申请卡数 (创建时)</label>
+    <label>申请卡数</label>
     <input type="number" id="gpu-count" value="1" min="1" max="8" />
   </div>
-
   <div class="group">
-    <label>数据盘扩容 (GB, 0 = 不扩)</label>
+    <label>数据盘扩容 (GB)</label>
     <input type="number" id="ddisk" value="0" min="0" max="2000" step="50" />
+    <div class="help">默认 50G,留 0 不扩</div>
   </div>
-
   <div class="group">
     <label>系统盘扩容 (GB)</label>
     <input type="number" id="sdisk" value="0" min="0" max="100" step="10" />
+    <div class="help">默认 30G,留 0 不扩</div>
   </div>
-
+  <div class="group" style="position: relative;">
+    <label>镜像 (框架 / 版本 / Python / CUDA)</label>
+    <div class="image-picker" id="image-picker">
+      <span class="label placeholder" id="image-label">公共 PyTorch 默认</span>
+      <span style="color: var(--dim); font-size: 11px;">▾</span>
+    </div>
+  </div>
   <div class="group">
-    <label>镜像 (留空 = 公共 PyTorch)</label>
+    <label>或直接填镜像 URL</label>
     <input type="text" id="image" placeholder="hub.kce.ksyun.com/..." />
   </div>
 
   <h3 style="margin-top: 32px;">监督模式</h3>
-
   <div class="group">
-    <label class="toggle">
-      <input type="checkbox" id="auto-watch" />
-      <span>实时轮询</span>
-    </label>
-    <div class="help" style="font-size: 11px; color: var(--dim); margin-top: 6px;">
-      开启后每 5 秒刷新, 匹配到机器会高亮闪烁 + 桌面提示
-    </div>
+    <label class="toggle"><input type="checkbox" id="auto-watch" /><span>实时轮询</span></label>
+    <div class="help">开后每 5s 刷新, 新机器整行 flash + 桌面通知</div>
   </div>
-
   <div class="group">
     <button class="btn" id="refresh-now">立即刷新</button>
   </div>
@@ -302,25 +320,27 @@
 <section class="content">
   <div class="statusbar">
     <div class="pulse" id="pulse"></div>
-    <div id="status-text">就绪 — 点 立即刷新 或开启实时轮询</div>
+    <div id="status-text">就绪 — 自动加载市场数据中…</div>
     <div class="right" id="last-update"></div>
   </div>
 
   <table class="market" id="market-table">
     <thead>
       <tr>
+        <th style="width: 24px;"></th>
         <th data-sort="price_yuan_per_hour" data-asc="true">价格/h ↑</th>
         <th data-sort="gpu_name">GPU</th>
         <th data-sort="gpu_idle">空闲</th>
         <th data-sort="region_name">区域</th>
         <th data-sort="machine_alias">机器</th>
+        <th>CPU/RAM</th>
+        <th>磁盘</th>
+        <th>CUDA</th>
         <th>操作</th>
       </tr>
     </thead>
     <tbody id="market-body">
-      <tr><td colspan="6" style="padding: 40px; text-align: center; color: var(--dim);">
-        点 立即刷新 加载市场数据
-      </td></tr>
+      <tr><td colspan="10" style="padding: 40px; text-align: center; color: var(--dim);">加载中…</td></tr>
     </tbody>
   </table>
 </section>
@@ -332,23 +352,29 @@
 <div class="pane" data-pane="push">
 
 <aside class="filters">
-  <h3>上传参数</h3>
+  <h3>新上传任务</h3>
   <div class="group">
-    <label>任务名 (a-z, 数字, _, -)</label>
+    <label>任务名</label>
     <input type="text" id="push-task" placeholder="my-experiment-001" />
+    <div class="help">a-z 数字 _ - </div>
   </div>
   <div class="group">
-    <label>本地文件 / 目录 路径</label>
+    <label>本地路径 (绝对)</label>
     <input type="text" id="push-src" placeholder="C:\Users\me\data" />
   </div>
   <div class="group">
     <button class="btn" id="push-start" disabled>开始上传</button>
   </div>
-  <div style="color: var(--dim); font-size: 11px; line-height: 1.6; margin-top: 22px;">
-    上传将依次执行 4 阶段:<br>
+  <div class="group">
+    <label class="toggle"><input type="checkbox" id="notify-on-done" checked /><span>完成时桌面通知</span></label>
+    <div class="help">关网页也能收到 (需授权 + 系统支持)</div>
+  </div>
+
+  <h3 style="margin-top: 24px;">流程说明</h3>
+  <div style="color: var(--dim); font-size: 11px; line-height: 1.7;">
     1. 打包成 zip<br>
     2. 上传到夸克网盘<br>
-    3. 触发 AutoPanel 下载到服务器<br>
+    3. AutoPanel 拉到服务器<br>
     4. SSH 解压到 ~/autodl-tmp/
   </div>
 </aside>
@@ -356,28 +382,44 @@
 <section class="content">
   <div class="statusbar">
     <div class="pulse" id="push-pulse"></div>
-    <div id="push-status">等待启动</div>
+    <div id="push-status">无活跃任务</div>
+    <div class="right" id="push-job-id"></div>
   </div>
 
   <div class="dropzone" id="dropzone">
     <div class="ic">📦</div>
-    <div>把文件或目录拖到这里, 或填左侧路径</div>
-    <div class="help">拖拽只读取路径 (浏览器限制), 上传由 kuake CLI 在本机执行</div>
+    <div>拖文件 / 目录到这里,或填左侧路径</div>
+    <div class="help">浏览器限制只能拿到文件名,需手动改绝对路径</div>
     <div class="selected-path" id="selected-path"></div>
   </div>
 
   <div class="log" id="push-log">[日志将出现在这里]</div>
+
+  <div class="jobs-panel">
+    <header>
+      <span>上传历史</span>
+      <button class="btn ghost sm" id="refresh-jobs">刷新</button>
+    </header>
+    <table class="jobs-table">
+      <thead>
+        <tr><th>状态</th><th>任务</th><th>路径</th><th>开始</th><th>结束</th><th></th></tr>
+      </thead>
+      <tbody id="jobs-body">
+        <tr><td colspan="6" style="text-align: center; color: var(--dim); padding: 24px;">无任务</td></tr>
+      </tbody>
+    </table>
+  </div>
 </section>
 
 </div>
 
 </main>
 
-<!-- ── LOCK MODAL ── -->
+<!-- ── lock modal ── -->
 <div class="modal-bg" id="lock-modal">
   <div class="modal">
     <header>
-      <h2 id="modal-title">⚠ 确认下单</h2>
+      <h2>⚠ 确认下单</h2>
       <button class="x" id="modal-close">×</button>
     </header>
     <section class="body">
@@ -396,6 +438,9 @@
   </div>
 </div>
 
+<!-- ── image picker popup ── -->
+<div id="image-popup" style="display: none; position: absolute;"></div>
+
 <script>
 "use strict";
 
@@ -406,20 +451,32 @@ document.querySelectorAll('.tab').forEach(b => {
     document.querySelectorAll('.pane').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     document.querySelector(`[data-pane="${b.dataset.tab}"]`).classList.add('active');
+    if (b.dataset.tab === 'push') refreshJobs();
   });
 });
 
-// ───────── toast ─────────
+// ───────── toast / notify ─────────
 function toast(msg, kind = 'info') {
   const t = document.createElement('div');
-  t.className = `toast ${kind}`;
-  t.textContent = msg;
+  t.className = `toast ${kind}`; t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 4500);
 }
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+async function notify(title, body) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    try { await Notification.requestPermission(); } catch (e) {}
+  }
+  if (Notification.permission === 'granted') {
+    new Notification(title, { body, icon: '/favicon.ico' });
+  }
+}
 
 // ───────── market ─────────
-let marketState = { matches: [], sortBy: 'price_yuan_per_hour', sortAsc: true, lastIds: new Set(), pollHandle: null };
+let marketState = { matches: [], sortBy: 'price_yuan_per_hour', sortAsc: true, lastIds: new Set(), pollHandle: null, expanded: new Set() };
 
 async function fetchMarket() {
   const gpu = document.getElementById('gpu-preset').value;
@@ -429,7 +486,6 @@ async function fetchMarket() {
   if (gpu) params.append('gpu', gpu);
   params.append('min_idle', minIdle);
   params.append('cpu_ok', cpuOk);
-
   document.getElementById('status-text').textContent = '请求中...';
   try {
     const r = await fetch('/api/market?' + params.toString());
@@ -455,40 +511,71 @@ function renderMarket() {
   });
 
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="padding: 40px; text-align: center; color: var(--dim);">
-      暂无匹配 ${marketState.pollHandle ? '— 继续轮询中' : ''}
+    tbody.innerHTML = `<tr><td colspan="10" style="padding: 40px; text-align: center; color: var(--dim);">
+      暂无匹配 ${marketState.pollHandle ? '— 继续轮询' : ''}
     </td></tr>`;
     return;
   }
 
   const newIds = new Set();
-  tbody.innerHTML = items.map(m => {
+  let html = '';
+  for (const m of items) {
     newIds.add(m.machine_id);
     const isNew = marketState.pollHandle && !marketState.lastIds.has(m.machine_id) && marketState.lastIds.size > 0;
     const priceClass = m.price_yuan_per_hour > 50 ? 'peak' : m.price_yuan_per_hour > 20 ? 'high' : '';
     const idleClass = m.gpu_idle === m.gpu_total ? 'full' : '';
-    return `<tr ${isNew ? 'class="flash"' : ''}>
+    const isOpen = marketState.expanded.has(m.machine_id);
+    const d = m.detail || {};
+    html += `<tr class="main ${isNew ? 'flash' : ''} ${isOpen ? 'open' : ''}" data-mid="${m.machine_id}">
+      <td><span class="expand-caret">▸</span></td>
       <td><span class="price ${priceClass}">¥${m.price_yuan_per_hour.toFixed(2)}</span></td>
       <td><span class="gpu-tag">${escapeHtml(m.gpu_name)}</span></td>
       <td><span class="idle ${idleClass}">${m.gpu_idle}/${m.gpu_total}</span></td>
       <td>${escapeHtml(m.region_name)}</td>
       <td>${escapeHtml(m.machine_alias)}</td>
+      <td style="font-size: 11px; color: var(--dim);">${d.cpu_per_gpu || '?'} 核 / ${d.mem_per_gpu_gb || '?'}G</td>
+      <td style="font-size: 11px; color: var(--dim);">${d.disk_size_gb || '?'}G ${d.disk_type || ''}</td>
+      <td style="font-size: 11px; color: var(--blue);">${escapeHtml(d.cuda_version_max || '?')}</td>
       <td><button class="lock-btn" data-machine="${m.machine_id}">锁定</button></td>
+    </tr>
+    <tr class="detail ${isOpen ? 'open' : ''}" data-mid-detail="${m.machine_id}">
+      <td colspan="10">
+        <div class="detail-grid">
+          <div class="field"><span class="k">每卡 CPU</span><span class="v">${d.cpu_per_gpu || '?'} 核 / ${d.cpu_num || '?'} 总</span></div>
+          <div class="field"><span class="k">每卡内存</span><span class="v">${d.mem_per_gpu_gb || '?'} GB / ${d.memory_gb || '?'} 总</span></div>
+          <div class="field"><span class="k">GPU 显存</span><span class="v accent">${d.gpu_memory_gb || '?'} GB</span></div>
+          <div class="field"><span class="k">磁盘</span><span class="v">${d.disk_size_gb || '?'} GB ${d.disk_type || ''}</span></div>
+          <div class="field"><span class="k">数据盘默认</span><span class="v">${d.data_disk_default_gb || '?'} GB</span></div>
+          <div class="field"><span class="k">CUDA 最高</span><span class="v accent">${escapeHtml(d.cuda_version_max || '?')}</span></div>
+          <div class="field"><span class="k">驱动</span><span class="v">${escapeHtml(d.driver_version || '?')}</span></div>
+          <div class="field"><span class="k">OS</span><span class="v">${escapeHtml(d.os_name || '?')}</span></div>
+          <div class="field" style="grid-column: span 2;"><span class="k">CPU 型号</span><span class="v" style="font-size: 11px;">${escapeHtml(d.cpu_name || '?')}</span></div>
+          <div class="field" style="grid-column: span 2;"><span class="k">算力</span><span class="v" style="font-size: 11px;">${escapeHtml(d.tflops || '?')}</span></div>
+        </div>
+      </td>
     </tr>`;
-  }).join('');
+  }
+  tbody.innerHTML = html;
   marketState.lastIds = newIds;
 
+  tbody.querySelectorAll('tr.main').forEach(tr => {
+    const mid = tr.dataset.mid;
+    tr.addEventListener('click', e => {
+      if (e.target.classList.contains('lock-btn')) return;
+      if (marketState.expanded.has(mid)) marketState.expanded.delete(mid);
+      else marketState.expanded.add(mid);
+      renderMarket();
+    });
+  });
   tbody.querySelectorAll('.lock-btn').forEach(btn => {
-    btn.addEventListener('click', () => onLock(btn.dataset.machine));
+    btn.addEventListener('click', e => { e.stopPropagation(); onLock(btn.dataset.machine); });
   });
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
 document.getElementById('refresh-now').addEventListener('click', fetchMarket);
-
+['gpu-preset', 'min-idle', 'cpu-ok'].forEach(id => {
+  document.getElementById(id).addEventListener('change', fetchMarket);
+});
 document.querySelectorAll('th[data-sort]').forEach(th => {
   th.addEventListener('click', () => {
     const k = th.dataset.sort;
@@ -497,14 +584,14 @@ document.querySelectorAll('th[data-sort]').forEach(th => {
     renderMarket();
   });
 });
-
 document.getElementById('auto-watch').addEventListener('change', e => {
   const pulse = document.getElementById('pulse');
   if (e.target.checked) {
     pulse.classList.add('live');
     fetchMarket();
     marketState.pollHandle = setInterval(fetchMarket, 5000);
-    toast('实时轮询启动 (每 5 秒一次)');
+    toast('实时轮询启动 (5s)');
+    notify('kuake', '已开启实时轮询').catch(() => {});
   } else {
     pulse.classList.remove('live');
     clearInterval(marketState.pollHandle);
@@ -512,6 +599,93 @@ document.getElementById('auto-watch').addEventListener('change', e => {
     toast('实时轮询已停');
   }
 });
+
+// ───────── image picker (3-level dropdown) ─────────
+let imagePresets = null;
+let imageSel = { framework: '', ver: '', py: '', cuda: '' };
+
+async function loadImagePresets() {
+  try {
+    const r = await fetch('/api/image-presets');
+    const data = await r.json();
+    imagePresets = data.frameworks;
+  } catch (e) { /* ignore */ }
+}
+
+function renderImageLabel() {
+  const lb = document.getElementById('image-label');
+  if (imageSel.framework && imageSel.ver && imageSel.py && imageSel.cuda) {
+    lb.className = 'label';
+    const verStr = imageSel.ver === '—' ? '' : ` / ${imageSel.ver}`;
+    lb.textContent = `${imageSel.framework}${verStr} / Py${imageSel.py} / CUDA${imageSel.cuda}`;
+  } else {
+    lb.className = 'label placeholder';
+    lb.textContent = '公共 PyTorch 默认';
+  }
+}
+
+document.getElementById('image-picker').addEventListener('click', e => {
+  e.stopPropagation();
+  if (!imagePresets) return;
+  const popup = document.getElementById('image-popup');
+  const rect = e.currentTarget.getBoundingClientRect();
+  popup.style.left = rect.left + 'px';
+  popup.style.top = (rect.bottom + 4) + 'px';
+  popup.style.display = 'block';
+  renderImagePopup();
+});
+
+document.addEventListener('click', e => {
+  const popup = document.getElementById('image-popup');
+  if (popup.style.display === 'block' && !popup.contains(e.target)) {
+    popup.style.display = 'none';
+  }
+});
+
+function renderImagePopup() {
+  const popup = document.getElementById('image-popup');
+  if (!imagePresets) return;
+  const fws = Object.keys(imagePresets);
+  const verCfg = imageSel.framework ? imagePresets[imageSel.framework] : null;
+  const vers = verCfg ? Object.keys(verCfg) : [];
+  const pyCfg = (verCfg && imageSel.ver) ? verCfg[imageSel.ver] : null;
+  const pys = pyCfg ? pyCfg.py : [];
+  const cudas = pyCfg ? pyCfg.cuda : [];
+
+  popup.className = 'image-picker-popup';
+  popup.innerHTML = `
+    <div class="col">
+      <h4>框架</h4>
+      ${fws.map(f => `<div class="opt ${imageSel.framework === f ? 'on' : ''}" data-set="framework" data-v="${f}">${f}</div>`).join('')}
+    </div>
+    <div class="col">
+      <h4>版本</h4>
+      ${vers.map(v => `<div class="opt ${imageSel.ver === v ? 'on' : ''}" data-set="ver" data-v="${v}">${v}</div>`).join('') || '<div class="opt" style="color: var(--dim);">选框架</div>'}
+    </div>
+    <div class="col">
+      <h4>Python</h4>
+      ${pys.map(p => `<div class="opt ${imageSel.py === p ? 'on' : ''}" data-set="py" data-v="${p}">${p}</div>`).join('') || '<div class="opt" style="color: var(--dim);">选版本</div>'}
+    </div>
+    <div class="col">
+      <h4>CUDA</h4>
+      ${cudas.map(c => `<div class="opt ${imageSel.cuda === c ? 'on' : ''}" data-set="cuda" data-v="${c}">${c}</div>`).join('') || '<div class="opt" style="color: var(--dim);">选版本</div>'}
+    </div>
+  `;
+  popup.querySelectorAll('.opt[data-set]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.dataset.set, v = el.dataset.v;
+      imageSel[k] = v;
+      if (k === 'framework') { imageSel.ver = ''; imageSel.py = ''; imageSel.cuda = ''; }
+      if (k === 'ver') { imageSel.py = ''; imageSel.cuda = ''; }
+      renderImagePopup();
+      renderImageLabel();
+      // 关闭只在 cuda 选完时
+      if (k === 'cuda' && imageSel.framework && imageSel.ver && imageSel.py && imageSel.cuda) {
+        setTimeout(() => { popup.style.display = 'none'; }, 200);
+      }
+    });
+  });
+}
 
 // ───────── lock modal ─────────
 let pendingPlan = null;
@@ -524,33 +698,35 @@ async function onLock(machineId) {
     system_disk_change_size_gb: parseInt(document.getElementById('sdisk').value, 10),
     image: document.getElementById('image').value.trim(),
   };
+  // 若用户没填 URL,且选了三级镜像,带上 framework/ver/py/cuda
+  if (!body.image && imageSel.framework && imageSel.ver && imageSel.py && imageSel.cuda) {
+    body.framework = imageSel.framework;
+    body.ver = imageSel.ver;
+    body.py = imageSel.py;
+    body.cuda = imageSel.cuda;
+  }
   document.getElementById('status-text').textContent = '生成 PLAN...';
   try {
     const r = await fetch('/api/grab-plan', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'PLAN 生成失败');
     pendingPlan = data;
     showLockModal(data);
-  } catch (e) {
-    toast(e.message, 'error');
-  }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 function showLockModal(planResp) {
   const s = planResp.summary;
-  const grid = document.getElementById('modal-summary');
-  grid.innerHTML = `
+  document.getElementById('modal-summary').innerHTML = `
     <div class="k">机器</div><div class="v">${escapeHtml(s.machine_alias)} <span style="color: var(--dim)">(${escapeHtml(s.region_name)})</span></div>
     <div class="k">GPU</div><div class="v">${escapeHtml(s.gpu_name)} × ${s.gpu_count}</div>
-    <div class="k">镜像</div><div class="v" style="font-size: 11px; word-break: break-all;">${escapeHtml((s.image || s.private_image_uuid || '默认').slice(0, 80))}</div>
+    <div class="k">镜像</div><div class="v" style="font-size: 11px; word-break: break-all;">${escapeHtml((s.image || s.private_image_uuid || '默认').slice(0, 100))}</div>
     <div class="k">数据盘扩容</div><div class="v">+${s.expand_data_disk_gb} GB</div>
     <div class="k">系统盘扩容</div><div class="v">+${s.system_disk_change_size_gb} GB</div>
     <div class="k">单价</div><div class="v" style="color: var(--green); font-weight: 600;">¥${s.price_yuan_per_hour.toFixed(2)}/h</div>
-    <div class="k">PLAN 文件</div><div class="v" style="font-size: 10px; color: var(--dim); word-break: break-all;">${escapeHtml(planResp.plan_file)}</div>
   `;
   document.getElementById('yes-input').value = '';
   document.getElementById('lock-modal').classList.add('show');
@@ -559,38 +735,28 @@ function showLockModal(planResp) {
 
 document.getElementById('modal-close').onclick = closeModal;
 document.getElementById('modal-cancel').onclick = closeModal;
-function closeModal() {
-  document.getElementById('lock-modal').classList.remove('show');
-  pendingPlan = null;
-}
+function closeModal() { document.getElementById('lock-modal').classList.remove('show'); pendingPlan = null; }
 
 document.getElementById('modal-submit').onclick = async () => {
   const yes = document.getElementById('yes-input').value.trim();
-  if (yes !== 'YES') {
-    toast('请输入大写 YES', 'error');
-    return;
-  }
+  if (yes !== 'YES') { toast('请输入大写 YES', 'error'); return; }
   if (!pendingPlan) { closeModal(); return; }
   const btn = document.getElementById('modal-submit');
   btn.disabled = true; btn.textContent = '提交中...';
   try {
     const r = await fetch('/api/confirm-create', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({plan_file: pendingPlan.plan_file, yes: 'YES'}),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || '下单失败');
     toast(`✓ 创建成功: ${data.uuid || data.result}`, 'success');
+    notify('kuake 抢卡成功', `${pendingPlan.summary.machine_alias} ${pendingPlan.summary.gpu_name}`);
     closeModal();
     fetchMarket();
-  } catch (e) {
-    toast(e.message, 'error');
-  } finally {
-    btn.disabled = false; btn.textContent = '立即下单';
-  }
+  } catch (e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '立即下单'; }
 };
-
 document.getElementById('yes-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('modal-submit').click();
 });
@@ -599,10 +765,7 @@ document.getElementById('yes-input').addEventListener('keydown', e => {
 const pushTaskEl = document.getElementById('push-task');
 const pushSrcEl = document.getElementById('push-src');
 const pushBtn = document.getElementById('push-start');
-
-function validatePushForm() {
-  pushBtn.disabled = !(pushTaskEl.value.trim() && pushSrcEl.value.trim());
-}
+function validatePushForm() { pushBtn.disabled = !(pushTaskEl.value.trim() && pushSrcEl.value.trim()); }
 pushTaskEl.addEventListener('input', validatePushForm);
 pushSrcEl.addEventListener('input', validatePushForm);
 
@@ -610,45 +773,42 @@ const dz = document.getElementById('dropzone');
 dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
 dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
 dz.addEventListener('drop', e => {
-  e.preventDefault();
-  dz.classList.remove('drag');
+  e.preventDefault(); dz.classList.remove('drag');
   const f = e.dataTransfer.files[0];
   if (f) {
-    // 浏览器限制: 只能拿到文件 name, 不是 full path. 提示用户手填.
     pushSrcEl.value = f.name;
-    document.getElementById('selected-path').textContent = `请手动改写为绝对路径 — 浏览器只能拿到文件名: ${f.name}`;
+    document.getElementById('selected-path').textContent = `请手动改为绝对路径: ${f.name}`;
     validatePushForm();
   }
 });
 
 pushBtn.addEventListener('click', async () => {
-  const task = pushTaskEl.value.trim();
-  const src = pushSrcEl.value.trim();
-  const logEl = document.getElementById('push-log');
-  logEl.innerHTML = '';
-  pushBtn.disabled = true;
-  document.getElementById('push-pulse').classList.add('live');
-  document.getElementById('push-status').textContent = '启动中...';
+  const task = pushTaskEl.value.trim(), src = pushSrcEl.value.trim();
   try {
     const r = await fetch('/api/push-start', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({task, src}),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || '启动失败');
+    localStorage.setItem('kuake_active_job', data.job_id);
+    document.getElementById('push-log').innerHTML = '';
     streamPushLog(data.job_id);
-  } catch (e) {
-    toast(e.message, 'error');
-    pushBtn.disabled = false;
-    document.getElementById('push-pulse').classList.remove('live');
-  }
+    refreshJobs();
+  } catch (e) { toast(e.message, 'error'); }
 });
 
+let activeStream = null;
 function streamPushLog(jobId) {
+  if (activeStream) activeStream.close();
   const logEl = document.getElementById('push-log');
+  document.getElementById('push-pulse').classList.add('live');
+  document.getElementById('push-status').textContent = '运行中';
+  document.getElementById('push-job-id').textContent = 'job ' + jobId;
+  pushBtn.disabled = true;
+
   const es = new EventSource(`/api/push-stream/${jobId}`);
-  document.getElementById('push-status').textContent = '上传中 (job ' + jobId + ')';
+  activeStream = es;
 
   es.onmessage = ev => {
     try {
@@ -663,26 +823,75 @@ function streamPushLog(jobId) {
       span.textContent = line + '\n';
       logEl.appendChild(span);
       logEl.scrollTop = logEl.scrollHeight;
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
   };
   es.addEventListener('done', ev => {
-    es.close();
-    const d = JSON.parse(ev.data);
+    es.close(); activeStream = null;
+    let d = {}; try { d = JSON.parse(ev.data); } catch (e) {}
     document.getElementById('push-pulse').classList.remove('live');
+    const ok = d.exit_code === 0 || d.status === 'completed';
     document.getElementById('push-status').textContent =
-      d.exit_code === 0 ? '✓ 完成' : '✗ 失败 (退出码 ' + d.exit_code + ')';
+      ok ? '✓ 完成' : `✗ ${d.status || 'failed'} (退出码 ${d.exit_code})`;
     pushBtn.disabled = false;
-    toast(d.exit_code === 0 ? '上传完成' : '上传失败', d.exit_code === 0 ? 'success' : 'error');
+    if (document.getElementById('notify-on-done').checked) {
+      notify(ok ? 'kuake 上传完成' : 'kuake 上传失败',
+             `任务 ${pushTaskEl.value || ''} ${ok ? '成功' : '退出码 ' + d.exit_code}`);
+    }
+    toast(ok ? '上传完成' : '上传失败', ok ? 'success' : 'error');
+    if (ok) localStorage.removeItem('kuake_active_job');
+    refreshJobs();
   });
-  es.onerror = () => {
-    es.close();
-    pushBtn.disabled = false;
-    document.getElementById('push-pulse').classList.remove('live');
-  };
+  es.onerror = () => { /* keep connection or browser reconnects */ };
 }
 
-// 首次自动加载一次
-fetchMarket();
+async function refreshJobs() {
+  try {
+    const r = await fetch('/api/jobs?limit=20');
+    const data = await r.json();
+    renderJobs(data.jobs || []);
+  } catch (e) { /* ignore */ }
+}
+
+function renderJobs(jobs) {
+  const tb = document.getElementById('jobs-body');
+  if (!jobs.length) {
+    tb.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--dim); padding: 24px;">无任务</td></tr>';
+    return;
+  }
+  tb.innerHTML = jobs.map(j => {
+    const fmt = t => t ? new Date(t).toLocaleTimeString() : '—';
+    return `<tr class="row" data-jid="${j.job_id}">
+      <td><span class="status-pill ${j.status}">${j.status}</span></td>
+      <td>${escapeHtml(j.task || '—')}</td>
+      <td style="color: var(--dim); font-size: 11px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(j.src || '')}</td>
+      <td style="color: var(--dim);">${fmt(j.started_at)}</td>
+      <td style="color: var(--dim);">${fmt(j.finished_at)}</td>
+      <td><button class="btn ghost sm" data-jid-attach="${j.job_id}">看日志</button></td>
+    </tr>`;
+  }).join('');
+  tb.querySelectorAll('button[data-jid-attach]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('push-log').innerHTML = '';
+      streamPushLog(btn.dataset.jidAttach);
+    });
+  });
+}
+document.getElementById('refresh-jobs').addEventListener('click', refreshJobs);
+
+// ───────── 启动: 加载市场 + 镜像目录 + 自动恢复活跃 job ─────────
+(async function init() {
+  await Promise.all([fetchMarket(), loadImagePresets()]);
+  refreshJobs();
+  const activeJob = localStorage.getItem('kuake_active_job');
+  if (activeJob) {
+    document.querySelector('.tab[data-tab="push"]').click();
+    streamPushLog(activeJob);
+  }
+  // 启动时主动请求通知权限 (静默, 用户首次操作可能再触发)
+  if ('Notification' in window && Notification.permission === 'default') {
+    setTimeout(() => Notification.requestPermission().catch(() => {}), 2000);
+  }
+})();
 </script>
 </body>
 </html>

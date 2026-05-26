@@ -5,23 +5,29 @@
 
 路由 (全在 localhost, 不做 auth — 反正本机操作):
   GET  /                              单页 HTML
-  GET  /api/market?...                查市场可租机器 (实时轮询用)
+  GET  /api/market?...                查市场可租机器 (含 CPU/RAM/磁盘/CUDA 详情)
   GET  /api/instances                 查我的实例
+  GET  /api/image-presets             公共镜像目录 (Framework → Version → Py → CUDA)
   POST /api/grab-plan {filters}       根据 filter 生成 PLAN 文件
   POST /api/clone-plan {source, ...}  生成 clone PLAN
   POST /api/confirm-create {plan, yes}必须 yes=='YES', 真下单
-  POST /api/push-start {task, src}    spawn `kuake push` 子进程, 返回 task_id
-  GET  /api/push-stream/<task_id>     SSE 推日志行
+  POST /api/push-start {task, src}    spawn `kuake push` 子进程, 返回 job_id
+  GET  /api/push-stream/<job_id>      SSE 推日志行 (含已写入历史 + 实时新行)
+  GET  /api/jobs                      列最近 N 个 push job (从 ~/.kuake/jobs/ 读)
+  GET  /api/jobs/<job_id>             单 job 详情 + 完整 log
 """
 from __future__ import annotations
 
 import json
+import os
 import queue
 import subprocess
 import sys
 import threading
+import time
 import uuid as uuidlib
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_from_directory
@@ -37,7 +43,186 @@ from kuake.config import config_paths
 from kuake.errors import NetworkError
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
-_PUSH_JOBS: dict[str, dict] = {}
+# 进程内 live queue, 用于 SSE 实时推送 (job 跑完后从文件回放)
+_LIVE_QUEUES: dict[str, queue.Queue] = {}
+
+
+# ── 镜像目录 (来自 AutoDL Web UI 选择器观察) ─────────────────────
+# 真实可用组合,与控制台「立即购买」配置页对齐。
+IMAGE_PRESETS = {
+    "PyTorch": {
+        "versions": {
+            "2.8.0": {"py": ["3.12"], "cuda": ["12.8"]},
+            "2.7.0": {"py": ["3.12", "3.11"], "cuda": ["12.6", "12.4"]},
+            "2.5.1": {"py": ["3.12", "3.11"], "cuda": ["12.4", "12.1"]},
+            "2.3.0": {"py": ["3.10"], "cuda": ["12.1"]},
+            "2.1.2": {"py": ["3.10"], "cuda": ["12.1", "11.8"]},
+        },
+        "tpl": "hub.kce.ksyun.com/autodl-image/torch:"
+               "cuda{cuda}-cudnn-devel-ubuntu22.04-py{pyshort}-torch{ver}",
+    },
+    "TensorFlow": {
+        "versions": {
+            "2.15.0": {"py": ["3.11"], "cuda": ["12.2"]},
+            "2.13.0": {"py": ["3.10"], "cuda": ["11.8"]},
+        },
+        "tpl": "hub.kce.ksyun.com/autodl-image/tensorflow:"
+               "cuda{cuda}-cudnn-devel-ubuntu22.04-py{pyshort}-tf{ver}",
+    },
+    "Miniconda": {
+        "versions": {
+            "—": {"py": ["3.12", "3.11", "3.10"], "cuda": ["12.4", "12.1", "11.8"]},
+        },
+        "tpl": "hub.kce.ksyun.com/autodl-image/miniconda3:"
+               "py{pyshort}-cuda{cuda}-ubuntu22.04",
+    },
+    "JAX": {
+        "versions": {
+            "0.4.30": {"py": ["3.12"], "cuda": ["12.4"]},
+        },
+        "tpl": "hub.kce.ksyun.com/autodl-image/jax:"
+               "cuda{cuda}-cudnn-devel-ubuntu22.04-py{pyshort}-jax{ver}",
+    },
+    "PaddlePaddle": {
+        "versions": {
+            "2.6.0": {"py": ["3.10"], "cuda": ["12.0"]},
+        },
+        "tpl": "hub.kce.ksyun.com/autodl-image/paddle:"
+               "cuda{cuda}-cudnn-devel-ubuntu22.04-py{pyshort}-paddle{ver}",
+    },
+}
+
+
+def _pyshort(v: str) -> str:
+    """3.12 -> 312"""
+    return v.replace(".", "")
+
+
+def render_image_url(framework: str, ver: str, py: str, cuda: str) -> str:
+    cfg = IMAGE_PRESETS.get(framework)
+    if not cfg:
+        return ""
+    return cfg["tpl"].format(ver=ver, py=py, pyshort=_pyshort(py), cuda=cuda)
+
+
+# ── Machine 详细字段抽取 (面向 UI 展示) ──────────────────────────
+def _machine_detail(m) -> dict:
+    """从 MachineMatch.raw 提取人类可读的硬件 / 系统详情。"""
+    raw = m.raw or {}
+    base = raw.get("machine_base_info", {}) or {}
+    return {
+        "cpu_name": base.get("cpu_name", "?"),
+        "cpu_num": base.get("cpu_num", 0),
+        "cpu_per_gpu": raw.get("cpu_per_gpu", 0),
+        "memory_gb": round(base.get("memory", 0) / 1024 ** 3, 1) if base.get("memory") else 0,
+        "mem_per_gpu_gb": round(raw.get("mem_per_gpu", 0) / 1024 ** 3, 1) if raw.get("mem_per_gpu") else 0,
+        "gpu_memory_gb": round(raw.get("gpu_memory", 0) / 1024 ** 3, 1) if raw.get("gpu_memory") else 0,
+        "disk_size_gb": round(base.get("disk_size", 0) / 1024 ** 3, 0) if base.get("disk_size") else 0,
+        "data_disk_default_gb": round(raw.get("max_instance_disk_size", 0) / 1024 ** 3, 0)
+            if raw.get("max_instance_disk_size") else 50,
+        "disk_type": raw.get("disk_type", "?"),
+        "cuda_version_max": raw.get("highest_cuda_version", "?"),
+        "driver_version": raw.get("driver_version", "?"),
+        "os_name": base.get("os_name", "?"),
+        "tflops": raw.get("floating_point_hash_rate", ""),
+    }
+
+
+# ── JobStore: 持久化 push job 状态到 ~/.kuake/jobs/ ──────────────
+class JobStore:
+    """File-based job state for unattended push:
+    - <job_id>.json:  metadata {status, started_at, exit_code, ...}
+    - <job_id>.log:   原始 stdout, append-only
+
+    Flask 进程死了, 已完成的 job 状态保留;在跑的 job (subprocess) 也会死,
+    但 log 文件保留, status 标记为 "interrupted" 由下次启动时扫到。
+    """
+
+    def __init__(self, home: Path):
+        self.dir = home / "jobs"
+        self.dir.mkdir(parents=True, exist_ok=True)
+
+    def create(self, kind: str, meta: dict) -> str:
+        job_id = uuidlib.uuid4().hex[:12]
+        now = datetime.now().isoformat(timespec="seconds")
+        full = {
+            "job_id": job_id, "kind": kind,
+            "status": "running", "started_at": now,
+            "finished_at": None, "exit_code": None,
+            **meta,
+        }
+        (self.dir / f"{job_id}.json").write_text(json.dumps(full, ensure_ascii=False),
+                                                  encoding="utf-8")
+        (self.dir / f"{job_id}.log").touch()
+        return job_id
+
+    def update(self, job_id: str, **fields) -> None:
+        p = self.dir / f"{job_id}.json"
+        if not p.exists():
+            return
+        meta = json.loads(p.read_text(encoding="utf-8"))
+        meta.update(fields)
+        p.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+    def get(self, job_id: str) -> dict | None:
+        p = self.dir / f"{job_id}.json"
+        if not p.exists():
+            return None
+        return json.loads(p.read_text(encoding="utf-8"))
+
+    def log_path(self, job_id: str) -> Path:
+        return self.dir / f"{job_id}.log"
+
+    def read_log(self, job_id: str) -> str:
+        p = self.log_path(job_id)
+        return p.read_text(encoding="utf-8", errors="replace") if p.exists() else ""
+
+    def list_recent(self, limit: int = 30) -> list[dict]:
+        files = sorted(self.dir.glob("*.json"),
+                       key=lambda f: f.stat().st_mtime, reverse=True)
+        out = []
+        for p in files[:limit]:
+            try:
+                out.append(json.loads(p.read_text(encoding="utf-8")))
+            except json.JSONDecodeError:
+                continue
+        return out
+
+    def sweep_stale(self) -> None:
+        """启动时扫一遍, 把 status=running 但 PID 已死的 job 标为 interrupted。"""
+        for meta in self.list_recent(limit=100):
+            if meta.get("status") != "running":
+                continue
+            pid = meta.get("pid")
+            if pid and not _pid_alive(pid):
+                self.update(meta["job_id"], status="interrupted",
+                            finished_at=datetime.now().isoformat(timespec="seconds"))
+
+
+def _pid_alive(pid: int) -> bool:
+    """跨平台粗略判断 PID 是否还在 (避免引入 psutil 依赖)。"""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFO = 0x1000
+            STILL_ACTIVE = 259
+            h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFO, 0, pid)
+            if not h:
+                return False
+            exit_code = ctypes.c_ulong()
+            ok = ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(exit_code))
+            ctypes.windll.kernel32.CloseHandle(h)
+            return bool(ok) and exit_code.value == STILL_ACTIVE
+        except Exception:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (ProcessLookupError, PermissionError):
+            return False
 
 
 def _client() -> AutoDLClient:
@@ -47,11 +232,23 @@ def _client() -> AutoDLClient:
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder=str(_TEMPLATE_DIR))
+    store = JobStore(config_paths().home)
+    store.sweep_stale()
 
     @app.route("/")
     def index():
         return send_from_directory(_TEMPLATE_DIR, "index.html")
 
+    # ── 镜像目录 (静态) ────────────────────────────────────────
+    @app.route("/api/image-presets")
+    def api_image_presets():
+        out = {}
+        for fw, cfg in IMAGE_PRESETS.items():
+            out[fw] = {ver: {"py": v["py"], "cuda": v["cuda"]}
+                       for ver, v in cfg["versions"].items()}
+        return jsonify({"frameworks": out})
+
+    # ── 市场 ──────────────────────────────────────────────────
     @app.route("/api/market")
     def api_market():
         gpu_filter = request.args.getlist("gpu") or None
@@ -80,9 +277,11 @@ def create_app() -> Flask:
             "gpu_idle": m.gpu_idle,
             "chip_corp": m.chip_corp,
             "price_yuan_per_hour": m.payg_price / 1000 if m.payg_price else 0.0,
+            "detail": _machine_detail(m),
         } for m in matches]
         return jsonify({"matches": result})
 
+    # ── 实例列表 ──────────────────────────────────────────────
     @app.route("/api/instances")
     def api_instances():
         try:
@@ -99,6 +298,7 @@ def create_app() -> Flask:
             "image": i.get("image", ""),
         } for i in instances]})
 
+    # ── grab plan ─────────────────────────────────────────────
     @app.route("/api/grab-plan", methods=["POST"])
     def api_grab_plan():
         data = request.get_json() or {}
@@ -112,15 +312,25 @@ def create_app() -> Flask:
         chosen = next((m for m in matches if m.machine_id == machine_id), None)
         if chosen is None:
             return jsonify({"error": f"机器 {machine_id} 已不在市场 (可能刚被抢了)"}), 410
+
+        # 镜像可以直接传 URL,或者传 framework/version/py/cuda 让后端拼
+        image = data.get("image") or None
+        if not image and data.get("framework"):
+            image = render_image_url(
+                data["framework"], data.get("ver", ""),
+                data.get("py", ""), data.get("cuda", ""),
+            ) or None
+
         plan = plan_from_match(
             chosen,
             gpu_count=int(data.get("gpu_count", 1)),
-            image=data.get("image") or None,
+            image=image,
             expand_data_disk_gb=int(data.get("expand_data_disk_gb", 0)),
             system_disk_change_size_gb=int(data.get("system_disk_change_size_gb", 0)),
         )
         return _save_and_serialize(plan, prefix="plan")
 
+    # ── clone plan ────────────────────────────────────────────
     @app.route("/api/clone-plan", methods=["POST"])
     def api_clone_plan():
         data = request.get_json() or {}
@@ -160,6 +370,7 @@ def create_app() -> Flask:
         )
         return _save_and_serialize(plan, prefix="clone")
 
+    # ── confirm-create (会扣费 !) ─────────────────────────────
     @app.route("/api/confirm-create", methods=["POST"])
     def api_confirm_create():
         data = request.get_json() or {}
@@ -179,8 +390,10 @@ def create_app() -> Flask:
             result = _client()._post("/api/v1/order/instance/create/payg", payload)
         except NetworkError as e:
             return jsonify({"error": str(e)}), 502
-        return jsonify({"ok": True, "result": result, "uuid": result if isinstance(result, str) else None})
+        return jsonify({"ok": True, "result": result,
+                        "uuid": result if isinstance(result, str) else None})
 
+    # ── push job: 启 + 流式日志 + 历史列表 ─────────────────────
     @app.route("/api/push-start", methods=["POST"])
     def api_push_start():
         data = request.get_json() or {}
@@ -190,49 +403,104 @@ def create_app() -> Flask:
             return jsonify({"error": "task + src required"}), 400
         if not Path(src).exists():
             return jsonify({"error": f"src 不存在: {src}"}), 404
-        job_id = uuidlib.uuid4().hex[:12]
+
+        job_id = store.create("push", {"task": task, "src": src})
         log_q: queue.Queue = queue.Queue()
-        _PUSH_JOBS[job_id] = {"queue": log_q, "done": False, "exit_code": None}
+        _LIVE_QUEUES[job_id] = log_q
 
         def runner():
+            log_path = store.log_path(job_id)
             proc = subprocess.Popen(
                 [sys.executable, "-m", "kuake", "push", task, src],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace",
             )
-            for line in proc.stdout or []:
-                log_q.put(line.rstrip("\r\n"))
+            store.update(job_id, pid=proc.pid)
+            with open(log_path, "a", encoding="utf-8") as logf:
+                for line in proc.stdout or []:
+                    logf.write(line)
+                    logf.flush()
+                    log_q.put(line.rstrip("\r\n"))
             proc.wait()
-            _PUSH_JOBS[job_id]["exit_code"] = proc.returncode
-            _PUSH_JOBS[job_id]["done"] = True
+            store.update(job_id,
+                         status="completed" if proc.returncode == 0 else "failed",
+                         exit_code=proc.returncode,
+                         finished_at=datetime.now().isoformat(timespec="seconds"))
             log_q.put(None)
+            _LIVE_QUEUES.pop(job_id, None)
 
         threading.Thread(target=runner, daemon=True).start()
         return jsonify({"job_id": job_id})
 
     @app.route("/api/push-stream/<job_id>")
     def api_push_stream(job_id):
-        job = _PUSH_JOBS.get(job_id)
-        if not job:
+        meta = store.get(job_id)
+        if not meta:
             return jsonify({"error": "unknown job_id"}), 404
 
         def gen():
-            log_q: queue.Queue = job["queue"]
-            while True:
-                line = log_q.get()
-                if line is None:
-                    yield f"event: done\ndata: {{\"exit_code\": {job['exit_code']}}}\n\n"
-                    return
+            # 1) 回放已写入的历史
+            existing = store.read_log(job_id)
+            for line in existing.splitlines():
                 yield f"data: {json.dumps({'line': line}, ensure_ascii=False)}\n\n"
 
+            # 2) 如果 job 已结束, 直接 done
+            cur = store.get(job_id) or {}
+            if cur.get("status") != "running":
+                yield (f"event: done\ndata: "
+                       f"{json.dumps({'exit_code': cur.get('exit_code'), 'status': cur.get('status')})}\n\n")
+                return
+
+            # 3) 还在跑 → 订阅 live queue;若进程是上次启动遗留的, queue 不存在 → 轮询文件 tail
+            live_q = _LIVE_QUEUES.get(job_id)
+            if live_q is not None:
+                while True:
+                    line = live_q.get()
+                    if line is None:
+                        cur = store.get(job_id) or {}
+                        yield (f"event: done\ndata: "
+                               f"{json.dumps({'exit_code': cur.get('exit_code'), 'status': cur.get('status')})}\n\n")
+                        return
+                    yield f"data: {json.dumps({'line': line}, ensure_ascii=False)}\n\n"
+            else:
+                # 文件 tail 模式 (遗留 job 或外部进程写入)
+                log_path = store.log_path(job_id)
+                pos = len(existing)
+                while True:
+                    if log_path.exists():
+                        with open(log_path, encoding="utf-8", errors="replace") as f:
+                            f.seek(pos)
+                            chunk = f.read()
+                            pos = f.tell()
+                        for line in chunk.splitlines():
+                            yield f"data: {json.dumps({'line': line}, ensure_ascii=False)}\n\n"
+                    cur = store.get(job_id) or {}
+                    if cur.get("status") != "running":
+                        yield (f"event: done\ndata: "
+                               f"{json.dumps({'exit_code': cur.get('exit_code'), 'status': cur.get('status')})}\n\n")
+                        return
+                    time.sleep(1.5)
+
         return Response(gen(), mimetype="text/event-stream",
-                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+                        headers={"Cache-Control": "no-cache",
+                                 "X-Accel-Buffering": "no"})
+
+    @app.route("/api/jobs")
+    def api_jobs():
+        limit = int(request.args.get("limit", "30"))
+        return jsonify({"jobs": store.list_recent(limit=limit)})
+
+    @app.route("/api/jobs/<job_id>")
+    def api_job(job_id):
+        meta = store.get(job_id)
+        if not meta:
+            return jsonify({"error": "unknown job_id"}), 404
+        return jsonify({"meta": meta, "log": store.read_log(job_id)})
 
     return app
 
 
 def _save_and_serialize(plan, *, prefix: str):
-    from datetime import datetime
     plans_dir = config_paths().home / "plans"
     plans_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -265,4 +533,4 @@ def serve(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) 
     if open_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     print(f"kuake serve → {url}  (Ctrl+C 退出)")
-    app.run(host=host, port=port, debug=False, use_reloader=False)
+    app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
