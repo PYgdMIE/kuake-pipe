@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kuake-pipe"
-version = "0.5.0"
+version = "0.6.0"
 description = "Automated local -> Quark cloud -> AutoDL server data transfer pipeline (no GUI client needed)"
 readme = "README.md"
 requires-python = ">=3.9"

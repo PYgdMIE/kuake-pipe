@@ -4,6 +4,57 @@ All notable changes to kuake-pipe are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-05-26
+
+**主线**: 产品级硬化 — Web UI auth/CSRF + CC/Codex 编排稳定性 + PyPI/Docker 发版自动化 + 长跑健壮性。
+
+### Added
+
+#### 🟠 安全 (默认行为)
+- **`kuake serve` token 认证默认 ON** — 启动 `secrets.token_urlsafe(24)` 生成随机 token, URL 自带 `?token=`, 同时支持 HttpOnly cookie + `X-Kuake-Token` header 三种入口
+- **CSRF Origin 校验** — POST/PUT/DELETE 有 Origin 时必须 same-origin, 无 Origin (curl/程序) 放行
+- **`kuake serve --no-auth`** — 显式关闭 (本机使用可); `--host 0.0.0.0 + --no-auth` 同时用会 warn
+
+#### 🟡 CC / Codex 自动化稳定性
+- **`--json` 输出模式** — 5 个命令 (`instances` / `whoami` / `wait-running` / `grab` / `auto`) 支持。rich 噪音切 stderr, stdout 仅 JSON。`auto --json` 用 try/except 包链路, 成功/失败都 emit `{success, stage_reached, new_uuid, ...}`
+- **`kuake status` 命令** — 外部查 jobs 状态。列最近 N / 单 job 详情 / `--only-running` 过滤 / `--json`。 启动时 sweep_stale 自动把 PID 死的 running 标 interrupted
+- **`kuake auto --fail-rollback`** — 链中失败 (在 created 之后) → 自动 `kuake stop <new_uuid> -y` 防扣费;不 release (避免误删数据);rollback 结果写入 JSON 输出 `{rollback_attempted, rollback_ok}`
+- **`kuake init --headless` 预检** — `list_instances(page_size=1)` ping JWT, 过期立即 raise UserInputError 引导重扫, 不卡 headless QR 页
+- **Windows cancel 用 CTRL_BREAK_EVENT** — `_spawn_job` 加 `CREATE_NEW_PROCESS_GROUP`, cancel 时 `send_signal(CTRL_BREAK_EVENT)`, 子进程的 finally 块 (SSH 断连 / FileLock 释放 / 临时 zip 删除) 有机会跑;3s timeout 后才硬 kill
+
+#### 🟢 长跑健壮性
+- **Job log rotation** — `JobStore.prune_old(keep_count=100, max_age_days=14)`; `kuake serve` 启动时调; 进行中的 job (status=running) 永不删
+- **Config schema 校验** — `validate_config` / `validate_credentials` 在 `read_*` 后调;检查 host/user 非空 / port 范围 / auth_mode 取值 / panel_base http(s):// / 云端 + 远端路径必须绝对 / SSH 凭据至少一种;多错一次报全
+
+#### 📦 发版自动化
+- **`.github/workflows/release.yml`** — tag `v*.*.*` 触发 4 个 job:
+  - build sdist + wheel
+  - publish PyPI (OIDC trusted publishing, 不需要 API token secret)
+  - publish ghcr.io Docker image (`latest` + `<version>` 双 tag)
+  - GitHub Release with extracted CHANGELOG section
+- **Dockerfile + .dockerignore** — `python:3.12-slim` + Chromium 运行时依赖 + `fonts-noto-cjk`; `pip install . && playwright install chromium`; `ENTRYPOINT=kuake`, 挂载 `~/.kuake` 即可用
+
+### Changed
+
+- `kuake serve` 默认启用 token 认证 (老的零 auth 行为需显式加 `--no-auth`)
+- `_detect_stage` 返回 `(n, total)` 而非 `int`, SSE event:stage 携带 total (前端按 4/5 算进度百分比)
+- `_spawn_job` 公共助手抽出 push 和 auto 共享的 runner + 队列 + cancel 逻辑
+
+### 测试
+
+- 33 个新单测 (Round 2 + 3 + 4 加起来):
+  - server auth/CSRF 11
+  - --json + status + fail-rollback + headless 16
+  - config validation + prune 17 - 1 已有 = 17 新
+- 总 **284 / 284 测试通过 + ruff 干净**
+
+### 发布渠道 (用户侧一次性配置)
+
+- **PyPI**: 在 https://pypi.org/manage/account/publishing/ 配 trusted publisher (project=`kuake-pipe`, workflow=`release.yml`, environment=`pypi`)
+- **GHCR Docker**: 自动, push tag 即发到 `ghcr.io/PYgdMIE/kuake-pipe:0.6.0`
+
+---
+
 ## [0.5.0] — 2026-05-26
 
 **主线**: 加 Web UI (`kuake serve`) + 端到端自动化 (`kuake auto`),让工具从「CLI 给老手」升级到「点选 + AI 编排」都行。
