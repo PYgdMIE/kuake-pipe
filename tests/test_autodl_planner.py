@@ -30,7 +30,7 @@ def _match(gpu="RTX 4090", **kw) -> MachineMatch:
         gpu_total=8,
         gpu_idle=2,
         chip_corp=kw.get("chip", "nvidia"),
-        payg_price=2900,  # ¥29/h
+        payg_price=29000,  # ¥29/h (单位:厘 = 1/1000 元)
         cpu_limit=12,
         mem_limit_in_byte=96 * 1024 ** 3,
         raw={"raw": "data"},
@@ -65,23 +65,36 @@ def test_plan_from_match_custom_image_overrides_default():
 def test_plan_from_match_with_expansion():
     m = _match()
     plan = plan_from_match(m, expand_data_disk_gb=200, system_disk_change_size_gb=30)
-    payload = plan.to_payload()["instance_info"]
-    assert payload["expand_data_disk"] == 200
-    assert payload["system_disk_change_size"] == 30
+    body = plan.to_payload()
+    # AutoDL 要求 expand_data_disk 单位是字节
+    assert body["instance_info"]["expand_data_disk"] == 200 * 1024 ** 3
+    assert body["instance_info"]["system_disk_change_size"] == 30 * 1024 ** 3
+    assert body["price_info"]["expand_data_disk"] == 200 * 1024 ** 3
 
 
 def test_plan_payload_has_all_required_fields():
     m = _match()
     plan = plan_from_match(m)
-    p = plan.to_payload()["instance_info"]
+    body = plan.to_payload()
+    info = body["instance_info"]
     for required in [
         "machine_id", "charge_type", "req_gpu_amount", "image",
         "private_image_uuid", "reproduction_uuid",
-        "expand_data_disk", "system_disk_change_size",
-        "coupon_id_list", "duration", "num",
+        "cg_application_uuid", "cg_application_info",
+        "instance_name", "expand_data_disk", "reproduction_id",
     ]:
-        assert required in p, f"payload 缺字段 {required}"
-    assert p["charge_type"] == "payg"
+        assert required in info, f"instance_info 缺字段 {required}"
+    assert info["charge_type"] == "payg"
+    # 默认 system_disk_change_size=0 → 不在 payload 里
+    assert "system_disk_change_size" not in info
+    # cg_application_info 4 个子字段
+    for k in ("app_name", "current_version_id", "current_version", "image_id"):
+        assert k in info["cg_application_info"]
+    # price_info 顶层 + 必填字段
+    assert "price_info" in body
+    for required in ["coupon_id_list", "machine_id", "charge_type",
+                     "duration", "num", "expand_data_disk"]:
+        assert required in body["price_info"], f"price_info 缺字段 {required}"
 
 
 def test_estimated_hour_cost_multi_gpu():
@@ -201,8 +214,8 @@ def test_grab_finds_match_writes_plan_no_submit(stub_jwt):
     plans = list((stub_jwt / "plans").glob("plan_*.json"))
     assert len(plans) == 1
     data = json.loads(plans[0].read_text())
-    assert data["payload"]["instance_info"]["expand_data_disk"] == 50
-    assert data["payload"]["instance_info"]["system_disk_change_size"] == 10
+    assert data["payload"]["instance_info"]["expand_data_disk"] == 50 * 1024 ** 3
+    assert data["payload"]["instance_info"]["system_disk_change_size"] == 10 * 1024 ** 3
 
 
 def test_grab_no_match_returns_after_max_iter(stub_jwt):

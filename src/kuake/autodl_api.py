@@ -61,13 +61,13 @@ class MachineMatch:
     gpu_total: int
     gpu_idle: int
     chip_corp: str  # 'nvidia' / 'cpu'
-    payg_price: int = 0          # 单位:分,即 0.01 元
+    payg_price: int = 0          # 单位:厘,即 1/1000 元(API 原样字段)
     cpu_limit: int = 0
     mem_limit_in_byte: int = 0
     raw: dict[str, Any] | None = None  # 原始 dict (含未明确暴露字段)
 
     def __str__(self) -> str:
-        price_yuan = self.payg_price / 100 if self.payg_price else 0
+        price_yuan = self.payg_price / 1000 if self.payg_price else 0
         return (
             f"{self.region_name}/{self.machine_alias}  "
             f"{self.gpu_name} ({self.gpu_idle}/{self.gpu_total} free)  "

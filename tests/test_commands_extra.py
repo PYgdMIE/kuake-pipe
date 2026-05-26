@@ -38,7 +38,7 @@ def _match(**kw):
         gpu_total=8,
         gpu_idle=kw.get("idle", 2),
         chip_corp=kw.get("chip", "nvidia"),
-        payg_price=kw.get("price", 2900),
+        payg_price=kw.get("price", 29000),
         cpu_limit=12,
         mem_limit_in_byte=96 * 1024 ** 3,
         raw={},
@@ -119,8 +119,8 @@ def test_grab_with_expansion_writes_correct_payload(kuake_home_with_jwt):
     data = json.loads(plans[0].read_text())
     p = data["payload"]["instance_info"]
     assert p["req_gpu_amount"] == 4
-    assert p["expand_data_disk"] == 200
-    assert p["system_disk_change_size"] == 50
+    assert p["expand_data_disk"] == 200 * 1024 ** 3
+    assert p["system_disk_change_size"] == 50 * 1024 ** 3
     # 时费 = ¥29 × 4 GPU = ¥116/h
     assert data["plan"]["payg_price_yuan_per_hour"] == 29.0
 
@@ -292,7 +292,7 @@ def test_format_plan_with_coupon():
 # ── 价格计算 ────────────────────────────────────────────────────
 
 def test_estimated_cost_with_num_multiple():
-    plan = plan_from_match(_match(price=10000), gpu_count=2)  # ¥100/h × 2 = ¥200/h
+    plan = plan_from_match(_match(price=100000), gpu_count=2)  # ¥100/h × 2 = ¥200/h
     plan.num = 3  # 创建 3 台
     assert plan.estimated_hour_cost() == pytest.approx(600.0)
 

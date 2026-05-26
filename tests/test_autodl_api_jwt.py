@@ -140,12 +140,12 @@ def test_client_list_available_parses_price():
              "region_name": "R", "region_sign": "rs",
              "gpu_name": "RTX 5090", "gpu_number": 4, "gpu_idle_num": 2,
              "chip_corp": "nvidia",
-             "payg_price": 7500,  # ¥75/h
+             "payg_price": 75000,  # ¥75/h (单位:厘 = 1/1000 元)
              "cpu_limit": 16,
              "mem_limit_in_byte": 96 * 1024 ** 3},
         ]}))
         matches = client.list_available()
-    assert matches[0].payg_price == 7500
+    assert matches[0].payg_price == 75000
     assert matches[0].cpu_limit == 16
 
 
@@ -164,7 +164,7 @@ def test_machine_match_str_with_price():
     m = MachineMatch(
         machine_id="x", machine_alias="A", region_name="R", region_sign="rs",
         gpu_name="GPU", gpu_total=4, gpu_idle=1, chip_corp="nvidia",
-        payg_price=2880,
+        payg_price=28800,
     )
     s = str(m)
     assert "R/A" in s

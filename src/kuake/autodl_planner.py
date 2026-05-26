@@ -46,22 +46,43 @@ class InstancePlan:
     notes: list[str] = field(default_factory=list)
 
     def to_payload(self) -> dict:
-        """构造真实 POST body (但调用方不直接发送, 留给用户最后确认)。"""
+        """构造真实 POST body (但调用方不直接发送, 留给用户最后确认)。
+
+        Schema 来自 2026-05 抓的 AutoDL Web UI 真实流量:
+        - expand_data_disk 单位是字节,不是 GB (plan 里存的是 GB)
+        - duration/num/coupon_id_list 拆在顶层 price_info,不在 instance_info
+        - system_disk_change_size 只在非零时发送
+        """
+        expand_bytes = self.expand_data_disk * 1024 ** 3
+        instance_info: dict = {
+            "machine_id": self.machine_id,
+            "charge_type": "payg",
+            "req_gpu_amount": self.req_gpu_amount,
+            "image": self.image,
+            "private_image_uuid": self.private_image_uuid,
+            "reproduction_uuid": self.reproduction_uuid,
+            "cg_application_uuid": "",
+            "cg_application_info": {
+                "app_name": "",
+                "current_version_id": 0,
+                "current_version": "",
+                "image_id": 0,
+            },
+            "instance_name": "",
+            "expand_data_disk": expand_bytes,
+            "reproduction_id": 0,
+        }
+        if self.system_disk_change_size:
+            instance_info["system_disk_change_size"] = self.system_disk_change_size * 1024 ** 3
         return {
-            "instance_info": {
+            "instance_info": instance_info,
+            "price_info": {
+                "coupon_id_list": self.coupon_id_list,
                 "machine_id": self.machine_id,
                 "charge_type": "payg",
-                "req_gpu_amount": self.req_gpu_amount,
-                "image": self.image,
-                "private_image_uuid": self.private_image_uuid,
-                "reproduction_uuid": self.reproduction_uuid,
-                "cg_application_uuid": "",
-                "cg_application_info": {"app_name": "", "current_version": ""},
-                "expand_data_disk": self.expand_data_disk,
-                "system_disk_change_size": self.system_disk_change_size,
-                "coupon_id_list": self.coupon_id_list,
                 "duration": self.duration,
                 "num": self.num,
+                "expand_data_disk": expand_bytes,
             },
         }
 
@@ -98,7 +119,7 @@ def plan_from_match(
         expand_data_disk=expand_data_disk_gb,
         system_disk_change_size=system_disk_change_size_gb,
         duration=duration,
-        payg_price_yuan_per_hour=match.payg_price / 100 if match.payg_price else 0.0,
+        payg_price_yuan_per_hour=match.payg_price / 1000 if match.payg_price else 0.0,
     )
 
 
@@ -150,7 +171,7 @@ def plan_clone_from_instance(
         expand_data_disk=expand_data_disk_gb,
         system_disk_change_size=system_disk_change_size_gb,
         duration=1,
-        payg_price_yuan_per_hour=target_match.payg_price / 100
+        payg_price_yuan_per_hour=target_match.payg_price / 1000
             if target_match.payg_price else 0.0,
         source_instance_uuid=source_instance.get("uuid", ""),
         notes=[
