@@ -114,6 +114,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_cc.add_argument("--plan-file", required=True,
                       help="grab/clone 生成的 plan JSON 路径")
 
+    p_serve = sub.add_parser(
+        "serve",
+        help="启动本地 Web UI (抢卡 + 上传)",
+    )
+    p_serve.add_argument("--port", type=int, default=8765,
+                         help="监听端口 (默认 8765)")
+    p_serve.add_argument("--host", default="127.0.0.1",
+                         help="监听地址 (默认 127.0.0.1)")
+    p_serve.add_argument("--no-browser", action="store_true",
+                         help="不自动开浏览器")
+
     return parser
 
 
@@ -224,6 +235,10 @@ def dispatch(args):
     elif cmd == "confirm-create":
         from kuake.commands import confirm_create
         confirm_create.run(plan_file=args.plan_file)
+    elif cmd == "serve":
+        from kuake import server
+        server.serve(host=args.host, port=args.port,
+                     open_browser=not args.no_browser)
     else:
         raise ValueError(f"Unknown command: {cmd}")
 

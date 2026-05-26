@@ -179,6 +179,10 @@ kuake clone <uuid前缀> --same-region   # uuid 前缀指定源 + 限制同区
 # ⚠️ 真下单的唯一入口 (会扣费,需输 'YES' 大写确认)
 kuake confirm-create --plan-file ~/.kuake/plans/plan_xxxx.json
 
+# Web UI (抢卡 + 上传 可视化, v0.5)
+kuake serve                           # 启本地 :8765 + 开浏览器
+kuake serve --port 9000 --no-browser
+
 # 配置
 kuake reset                           # 清 ~/.kuake/(弹确认)
 kuake reset --keep-credentials        # 仅清 config,留登录态
