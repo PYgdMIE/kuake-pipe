@@ -1,22 +1,34 @@
 # kuake-pipe
 
-> 本地数据 → 夸克网盘 → AutoDL 服务器 全自动中转。**零硬编码 / 凭据自动抓取 / token 过期自动重登 / 实时抢卡**。
+> 本地数据 → 夸克网盘 → AutoDL 服务器 全自动中转 + **抢卡 / 下单 / 配凭据 / 推数据 一条命令端到端**。
 
 [![Tests](https://github.com/PYgdMIE/kuake-pipe/actions/workflows/test.yml/badge.svg)](https://github.com/PYgdMIE/kuake-pipe/actions/workflows/test.yml)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4%2B-blue)](CHANGELOG.md)
 
 **支持平台**: Windows · macOS · **Linux**(v0.4 起,不再依赖夸克 PC 客户端)
 
 ---
 
-## TL;DR
+## TL;DR — 三种使用方式
 
 ```bash
-pip install kuake-pipe         # 还没发 PyPI 前: pip install git+https://github.com/PYgdMIE/kuake-pipe
-kuake init                     # 一次性扫码(AutoDL + Quark),其它全自动
-kuake push my-dataset ./data   # 之后只这一条命令
+pip install git+https://github.com/PYgdMIE/kuake-pipe
+kuake init    # 一次性扫码 (AutoDL + Quark),仅首次
+```
+
+```bash
+# ① 命令行  —— 适合脚本化、CI、熟悉 CLI 的用户
+kuake push my-dataset ./data
+
+# ② Web UI  —— 适合点选、看实时状态、有图形化偏好
+kuake serve                  # 浏览器自动打开 http://127.0.0.1:8765
+
+# ③ 全自动端到端  —— 适合 Claude Code / Codex / 无人值守批处理
+KUAKE_AUTOPANEL_PASSWORD=xxxx kuake auto \
+  --gpu "RTX 3080 Ti" --task my-exp --src ./data \
+  --expand-data-disk 100 --max-market-iter 100
 ```
 
 `./data` 自动打包 → 通过 Quark Cloud API **直接上传**到云盘 → AutoPanel 触发服务器下载 → SSH 解压到 `/root/autodl-tmp/my-dataset/`。**全程零点击**。
@@ -132,7 +144,8 @@ kuake init \
   --instance 1 \
   --ssh-key \
   --cloud-dir /kuake-uploads \
-  --no-smoke
+  --no-smoke \
+  --headless     # ⚠ 已有 storage_state 时才能用 (跳过浏览器可见)
 ```
 
 `kuake push` 没有任何交互,跑就行:
@@ -143,30 +156,136 @@ kuake push my-task ./data
 
 ---
 
+## Web UI(`kuake serve`)
+
+```bash
+kuake serve                # 默认 http://127.0.0.1:8765, 自动开浏览器
+kuake serve --port 9000 --no-browser
+```
+
+单页三个 tab,对应三种主任务:
+
+### 🎯 抢卡 tab — 实时市场监督 + 一键锁卡
+
+- **左侧过滤栏**:GPU 型号下拉 / 最少空闲张数 / 区域多选 chips(动态从市场数据收集)/ 也接受 CPU 实例
+- **创建配置**:卡数 / 数据盘扩容 / 系统盘扩容 / **三级镜像选择器**(框架 → 版本 → Python → CUDA,5 个框架预置)
+- **实时轮询**:开关 + 间隔可调(3 / 5 / 10 / 30 秒)+ 连续 3 次失败自动退避
+- **市场表**:价格列默认升序;每行可展开看详细配置(CPU 核数 / 每卡内存 / GPU 显存 / 主机磁盘 / CUDA / 驱动 / OS / CPU 型号 / TFLOPS)
+- **锁定**:点机器行的「锁定」→ 弹模态显示 PLAN 摘要 + 必输大写 `YES` → POST 真下单
+- **桌面通知**:抢到机器后弹系统通知(失焦也能收到)
+
+### 📦 上传 tab — 离线无人值守
+
+- **原生路径选择器**:点「选目录 / 选文件」按钮 → 后端 tkinter 弹本机系统对话框 → 填回绝对路径(解决浏览器拖拽只能拿文件名的限制)
+- **push 参数 toggle**:`--no-unzip` / `--keep-zip` 两个复选框
+- **取消运行中**:红色按钮,后端 terminate 子进程 + 标记 `cancelled`
+- **4 阶段进度条**:打包 → 上传夸克 → AutoPanel 拉取 → SSH 解压,当前阶段橙色脉冲,已完成的变绿
+- **历史 job**:状态 pill(running/completed/failed/cancelled/interrupted),失败的一键重试(复用 task + src + flags)
+- **离线持久**:**关闭浏览器、刷新页面、重启服务器都不影响**进行中的 job(job state 落 `~/.kuake/jobs/`,SSE 重连自动 tail)
+- **远端文件**:点击刷新调 `kuake ls` 列服务器侧文件,每行可删
+- **桌面通知**:完成时弹系统通知
+
+### 🤖 全自动 tab — 端到端一键
+
+- **完整表单**:GPU / max-iter / 卡数 / 数据盘 / 系统盘 / 镜像 / ready-timeout / **AutoPanel 密码**(password 输入,不落盘)/ 云端目录 / 任务名 / 本地路径 / push 参数 / **stop-after 停点**
+- **5 阶段进度条**:轮询市场 → 下单 → 等就绪 → init 配凭据 → push 推数据
+- **stop-after 4 个挡位**:
+  - `create` 仅下单后停(异步等待场景)
+  - `ready` 等机器开机后停(准备上 SSH)
+  - `init` 配好 `~/.kuake/{config,credentials}.toml` 停
+  - `push` 完整跑完(默认)
+- **启动前 confirm**:列 GPU + stop-after,防误操作
+- **真扣费警告**:UI 底部固定提示框,所有挡位都明示
+
+---
+
+## CC / Codex 自动化场景
+
+`kuake auto` + `kuake serve` 的 REST API 可以让 AI 工具(Claude Code、Codex CLI)一句话发起完整链路。
+
+### 场景 A:CLI 形式(子进程调起)
+
+```bash
+# Claude Code 在 Bash tool 里执行
+KUAKE_AUTOPANEL_PASSWORD=$KUAKE_PW kuake auto \
+  --gpu "RTX 5090" \
+  --task experiment-2026-05-26 \
+  --src /workspaces/training-data \
+  --expand-data-disk 200 \
+  --max-market-iter 0      # 0 = 无限等到抢到
+```
+
+阻塞直到全链完成。exit 0 = 成功;非 0 = 任一阶段失败,stderr 有原因。
+
+### 场景 B:HTTP 形式(`kuake serve` 启动后调 REST)
+
+```bash
+# 启动一次 (后台)
+kuake serve --no-browser &
+
+# 发请求, 拿 job_id
+curl -X POST http://127.0.0.1:8765/api/auto-start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "autopanel_password": "'"$KUAKE_PW"'",
+    "gpu": ["RTX 5090"],
+    "task": "experiment-2026-05-26",
+    "src": "/workspaces/training-data",
+    "expand_data_disk_gb": 200,
+    "stop_after": "push"
+  }'
+# → {"job_id": "abc123def456"}
+
+# 流式看日志
+curl -N http://127.0.0.1:8765/api/push-stream/abc123def456
+```
+
+### 关键命令(给 AI 自己调)
+
+| 命令 | 用途 |
+|---|---|
+| `kuake auto --stop-after create` | 仅下单,返回 uuid 给后续阶段 |
+| `kuake wait-running <uuid>` | 阻塞到 `status=running`(独立,可单独用)|
+| `kuake init --instance N --headless` | 无头模式 init(`storage_state` 已存在时)|
+| `kuake confirm-create --plan-file X --yes` | 跳过 stdin YES(3s grace 防误)|
+
+### 仍绕不掉的人工(三件)
+
+1. **首次扫两次微信码**(AutoDL + Quark)— 个人微信账号
+2. **Token 过期重扫**(AutoDL JWT / Quark cookie)
+3. **下单的 3 秒 grace 窗口** — `--yes` 启用后不弹 stdin,但仍打印警告 + 3 秒 Ctrl+C 抢救
+
+除以上,**全可 CC/Codex 一行调起**。
+
+---
+
 ## 命令速查
 
 ```bash
-# 主流程
+# ── 数据传输 ────────────────────────────────────────────
 kuake init                            # 首次配置 / 重新登录
+kuake init --headless                 # 无头模式 (要求 storage_state 已存在, auto 用)
 kuake push <task> <src>               # 完整传输 (打包→上行→下载→解压)
 kuake push <task> <src> --no-unzip    # 只下载不解压
 kuake push <task> <src> --keep-zip    # 保留本地 zip
 kuake retry <task>                    # 跳过打包,用已有 UPLOAD/<task>.zip
-kuake refresh                         # 手动刷 AutoPanel session (自动 refresh 失败时)
-
-# 服务器侧管理
+kuake refresh                         # 手动刷 AutoPanel session
 kuake doctor                          # 12 项全链路自检
+
+# ── 远端文件管理 ────────────────────────────────────────
 kuake ls                              # 列远端 /root/autodl-tmp/
 kuake rm <task>                       # 删远端 + 本地 zip
 
-# AutoDL 实例管理
+# ── 实例管理 ───────────────────────────────────────────
 kuake instances                       # 列所有实例 + 状态色标
-kuake start [N]                       # 开机第 N 号(默认第一台已关机的)
+kuake whoami                          # 钱包余额 + 实例数 (只读)
+kuake start [N]                       # 开机第 N 号
 kuake stop  [N] [-y]                  # 关机第 N 号 ⚠️ 慎用
+kuake wait-running <uuid|N|前缀>       # 阻塞到 status=running (脚本化 chain 用)
 
-# 抢卡 + 克隆 + 下单 (v0.4: 默认 PLAN dry-run,绝不下单)
+# ── 抢卡 + 克隆 + 下单 (默认 PLAN dry-run,绝不下单) ─────────
 kuake grab                            # 任何卡 / 任何区 → 生成 PLAN
-kuake grab --gpu "RTX 5090"           # 只盯 RTX 5090
+kuake grab --gpu "RTX 5090"           # 只盯特定型号
 kuake grab --gpu "RTX PRO 6000" --min-idle 2
 kuake grab --region west-B --poll 3
 kuake grab --cpu-ok                   # 也接受 CPU 实例
@@ -176,18 +295,30 @@ kuake clone                           # 交互选源实例 → 找同 GPU 新机
 kuake clone 1                         # 用第 1 号实例作为源
 kuake clone <uuid前缀> --same-region   # uuid 前缀指定源 + 限制同区
 
-# ⚠️ 真下单的唯一入口 (会扣费,需输 'YES' 大写确认)
-kuake confirm-create --plan-file ~/.kuake/plans/plan_xxxx.json
+# ⚠️ 真下单的唯一入口 (会扣费)
+kuake confirm-create --plan-file ~/.kuake/plans/plan_xxxx.json         # 交互输 YES
+kuake confirm-create --plan-file ... --yes                              # CC/Codex: 3s grace
 
-# Web UI (抢卡 + 上传 可视化, v0.5)
-kuake serve                           # 启本地 :8765 + 开浏览器
-kuake serve --port 9000 --no-browser
+# ── 端到端自动化 (CC/Codex 一键调) ──────────────────────
+kuake auto --gpu "RTX 3080 Ti" \
+  --task my-exp --src ./data \
+  --expand-data-disk 100 \
+  --max-market-iter 100               # grab→create→wait→init→push
 
-# 配置
+kuake auto --stop-after create        # 仅下单返回 uuid
+kuake auto --stop-after ready         # 等就绪后停
+kuake auto --stop-after init          # 配好凭据停
+kuake auto --stop-after push          # 完整 (默认)
+
+# ── Web UI ─────────────────────────────────────────────
+kuake serve                           # 启本地 :8765 + 开浏览器 (三 tab)
+kuake serve --port 9000 --no-browser  # 自定义端口 + 不开浏览器
+
+# ── 配置 ──────────────────────────────────────────────
 kuake reset                           # 清 ~/.kuake/(弹确认)
 kuake reset --keep-credentials        # 仅清 config,留登录态
 kuake --version
-kuake --help                          # 总命令清单
+kuake --help
 kuake <command> --help                # 单命令选项
 ```
 
@@ -377,7 +508,7 @@ cd kuake-pipe
 python -m venv .venv
 source .venv/bin/activate                    # Win: .venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
-pytest -v                                    # 90+ tests pass
+pytest -v                                    # 240+ tests pass
 ```
 
 详见 [CONTRIBUTING.md](CONTRIBUTING.md)。Selector 失效是最高频贡献场景。
@@ -396,31 +527,37 @@ DOM-依赖的部分会随 AutoDL/夸克页面改版失效,修复点集中在 [`s
 
 ## 已知限制
 
-| 限制 | 说明 | 计划 |
+| 限制 | 说明 | 状态 |
 |---|---|---|
 | smoke test 留 1KB 测试文件在云端 | Quark 删除 API 未探到 | 待 |
 | Linux / 物理 Mac 未在真机长跑验证 | 代码兼容,首次可能有 path 坑 | 等用户反馈 |
-| 上传暂未真并发 | parallel_upload 需要计算增量 SHA1 hash_ctx,目前是单连接 + 4MB 分片(顺序) | v0.5 |
-| 上传无断点续传 | upload_id + parts 状态本地化未做 | v0.5 |
-| 多 profile 用 KUAKE_HOME 切换 | 内建支持还没做 | v0.5 |
-| `--auto-create` 没真实下单跑过 | API 截了但没真买 | 等用户反馈 |
+| 上传暂未真并发 | parallel_upload 需要计算增量 SHA1 hash_ctx,目前是单连接 + 4MB 分片(顺序) | v0.6 |
+| 上传无断点续传 | upload_id + parts 状态本地化未做 | v0.6 |
+| 多 profile 用 KUAKE_HOME 切换 | 内建支持还没做 | v0.6 |
 | `kuake stop` 慎用 | 误关训练实例无法挽回 | 加二次确认改进 |
+| ~~`--auto-create` 没真实下单跑过~~ | ~~API 截了但没真买~~ | ✅ v0.5 真账号验证, payload schema 修复 |
+| ~~confirm-create 必须人工输 YES~~ | ~~CC/Codex 自动化无法用~~ | ✅ v0.5 加 `--yes` flag + 3s grace |
+| ~~kuake init 弹浏览器无法 hands-off~~ | ~~自动化中断点~~ | ✅ v0.5 加 `--headless`(storage_state 有效时) |
+| ~~Web UI 缺失~~ | ~~只有 CLI~~ | ✅ v0.5 `kuake serve` 三 tab |
 
 ---
 
-## v0.4.0 实现细节
+## 实现细节
 
 | 维度 | |
 |---|---|
-| Python 模块 | 31 个 (`src/kuake/`) — 新增 `quark_uploader.py` |
-| CLI 命令 | 11 (`init/push/retry/refresh/doctor/ls/rm/reset/instances/start/stop/grab`) |
-| 单元测试 | 99(原 90 + 新 9 个 quark_uploader 测试) |
-| 真账号 E2E | Quark 直接上传(单分片 / 多分片 / 秒传)全部跑通 |
-| 砍掉的代码 | 夸克 PC 客户端依赖 / `local_backup_dir` config 字段 / `PlatformUnsupported` 拦截 |
+| Python 模块 | 35 个 (`src/kuake/`) — 含 `quark_uploader.py` / `autodl_planner.py` / `server.py` / `commands/auto.py` 等 |
+| CLI 子命令 | **18 个** (init/push/retry/refresh/doctor/whoami/ls/rm/reset/instances/start/stop/grab/clone/confirm-create/wait-running/auto/serve) |
+| Web UI 路由 | 14 个 REST (`/api/market`, `/auto-start`, `/push-stream/<id>` 等) |
+| 单元测试 | **240+**(覆盖 server 路由 / auto chain / 上传 / grab planner / quark_uploader 等)|
+| 真账号 E2E | Quark 直接上传 / confirm-create 真下单 / clone +data disk PLAN 全部跑通 |
 
 ### 关键技术决策
 
-- **协议逆向**:用 Playwright 启动 headed Chromium 上传 5KB 测试文件,intercept 所有请求,落 HAR + JSONL trace,识别出 PUT 真实 host 是 `{bucket}.pds.quark.cn`(原 `quarkpan` 库 hardcode 的 `oss-cn-shenzhen.aliyuncs.com` 自 2025 起已 404)
+- **协议逆向 (v0.4)**:用 Playwright 启动 headed Chromium 上传 5KB 测试文件,intercept 所有请求,落 HAR + JSONL trace,识别出 Quark PUT 真实 host 是 `{bucket}.pds.quark.cn`(原 `quarkpan` 库 hardcode 的 `oss-cn-shenzhen.aliyuncs.com` 自 2025 起已 404)
+- **AutoDL create payload (v0.5)**:用 Playwright `route.abort()` 截获真实 POST body,确认 `expand_data_disk` 单位是字节、`coupon_id_list/duration/num` 拆在顶层 `price_info`、`cg_application_info` 有 4 个子字段(`scripts/probe_create_intercept.py` 是这个流程的工具脚本,以后 AutoDL 改 schema 时可重抓)
+- **payg_price 单位修正 (v0.5)**:之前按"分"(0.01 元)算,实际是"厘"(0.001 元),价格全部 ×10 偏差;一次性纠正 + 测试用例的 fixture 值同步更新
+- **`_spawn_job` 公共助手 (v0.5)**:push 和 auto 共享 runner + log 持久化 + cancel + SSE 队列,通过 `kind` 字段区分;`_detect_stage` 返回 `(n, total)` 同时支持 push 4 段 + auto 5 段
 - **绕过 GUI 客户端**:Cookie 已经被 init 阶段抓住(供 AutoPanel 绑定用),再喂给我们自己的 uploader 就能直接调 Quark Cloud HTTP API,完全跳过夸克客户端的「备份」功能
 - **保留 panel API**:stage 3(服务器侧从云盘下载)仍然走 AutoPanel,因为这是 AutoDL 提供的代下载服务 — 这不是 kuake 引入的依赖,而是 AutoDL 的产品形态
 
