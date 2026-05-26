@@ -4,29 +4,60 @@ All notable changes to kuake-pipe are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Version numbers follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] — 2026-05-26
+
+**主线**: 加 Web UI (`kuake serve`) + 端到端自动化 (`kuake auto`),让工具从「CLI 给老手」升级到「点选 + AI 编排」都行。
 
 ### Added
-- **`kuake grab` v2** — 找到匹配机器 → 生成完整 `/api/v1/order/instance/create/payg` payload → 落盘到 `~/.kuake/plans/`,**绝不下单**
-  - 新选项: `--gpu-count`, `--expand-data-disk`, `--system-disk-expand`, `--image`, `--any-region`
-  - 旧 `--auto-create` 行为废弃,统一改成 PLAN 模式
-- **`kuake clone <source>`** — 从已有实例的 detail 提取镜像/GPU/扩容配置,在市场上找一台空闲机器生成"开同款"PLAN(dry-run)
-  - 源实例可用 1-based 索引或 uuid 前缀
-  - `--same-region` 限制只在源实例同区找
-- **`kuake confirm-create --plan-file <p.json>`** — 唯一会真下单的入口
-  - 需输入字面 `YES`(大写),其它任何输入(含 `y` / `yes`)都会取消
-  - 显示扣费提示 + 单价 + 完整 plan
-- **AutoDL JWT 加载** — `kuake.autodl_api.load_jwt_from_storage_state()` 从 `localStorage.token` 提取,补全旧 cookie-only 鉴权的不足
-- **`kuake.autodl_planner`** — 纯 dataclass + 序列化,plan 与发送完全解耦
-- **测试**: +21 个 (autodl_planner + grab + clone + confirm-create 安全门),总 143/143 通过,覆盖 53%
 
-### Roadmap
+#### Web UI (`kuake serve`)
+- 本地 Flask server (默认 `127.0.0.1:8765`), 启动自动开浏览器, vanilla JS 单页 + editorial dark theme
+- **三个 tab**:
+  - **抢卡** — 实时市场监督 + 详情可展开行 (CPU/内存/GPU 显存/磁盘/CUDA/驱动/OS) + 三级镜像选择器 (Framework → Version → Python → CUDA, 5 个预置框架) + 区域 chips 多选 + 轮询间隔可调 (3/5/10/30s) + 失败退避 + JWT 过期专项提示 + 模态 `YES` 输入门
+  - **上传** — 后端 tkinter 原生文件/目录选择器 + `--no-unzip` / `--keep-zip` toggle + 取消运行中 (terminate 子进程) + 4 阶段进度条 (打包/上传/AutoPanel/SSH) + 历史 job 一键重试 + 远端文件面板 (kuake ls/rm) + 完成桌面通知
+  - **全自动** — 完整表单 + 5 阶段进度条 + `stop-after` (create/ready/init/push) + 启动前 confirm 防误操作
+- **Job 持久化**: 状态落 `~/.kuake/jobs/<id>.json` + log 文件, 浏览器刷新/重启 server 后 SSE 自动重连仍在跑的任务
+- **15 个 REST 路由**: `/api/market` `/instances` `/grab-plan` `/clone-plan` `/confirm-create` `/push-start` `/auto-start` `/push-cancel/<id>` `/push-stream/<id>` `/jobs[/<id>]` `/pick-path` `/remote/ls` `/remote/rm` `/image-presets`
+
+#### 端到端自动化 (CC / Codex CLI 编排)
+- **`kuake auto`** — `grab → confirm-create → wait → init → push` 一条命令跑完, 5 个阶段任一失败 raise + 非零退出
+  - `--stop-after create|ready|init|push` 4 个挡位
+  - `--gpu` / `--region` / `--gpu-count` / `--expand-data-disk` / `--system-disk-expand` / `--image` / `--max-market-iter` / `--ready-timeout` / `--autopanel-password` / `--cloud-dir` / `--task` / `--src` / `--no-unzip` / `--keep-zip` 全 flag 化
+- **`kuake wait-running <target>`** — 阻塞到 `status=running`, target 支持 uuid / 1-based 索引 / uuid 前缀
+- **`kuake confirm-create --yes`** — 跳过 stdin `YES` 等待, 3s grace + Ctrl+C 抢救 (CC/Codex 用)
+- **`kuake init --headless`** — 浏览器无头模式 (要求 `storage_state` 已存在), `kuake auto` 第 4 步自动加, 实现真正零界面端到端
+- `AutoDLClient.wait_until_running(uuid, timeout, poll, progress_cb)` — 状态变化时 callback, 不刷屏
+
+### Changed
+
+#### 关键 bug 修复
+- **`payg_price` 单位修正** (×10 偏差) — 之前按"分"(0.01 元) 算, 实际是"厘"(0.001 元):
+  - 修复前 RTX 3080 Ti 显示 `¥10.30/h`, 实际 `¥1.03/h`
+  - `/100` → `/1000`, 6 处测试 fixture 同步更新 (`2900` → `29000`)
+- **`confirm-create` payload schema 重写** — v0.4 自承"从未真账号触发", 实测时 AutoDL 返回 `RequestParameterIsWrong`:
+  - 用 Playwright `route.abort()` 截获真实 POST body (`scripts/probe_create_intercept.py`)
+  - 修 6 处差异: `expand_data_disk` 是字节不是 GB, `cg_application_info` 4 子字段 (多 `current_version_id` / `image_id`), 新增 `instance_name` / `reproduction_id`, `coupon_id_list` / `duration` / `num` 拆到顶层 `price_info`, `system_disk_change_size` 只在非零时发送
+  - **真账号验证**: TITAN Xp `uuid 1c0641804d-11a4d915` + clone +100G `uuid 83d14ab034-84782557` 都跑通
+
+### Fixed
+- Web UI 镜像选择器点 option 后自动收起 (renderImagePopup 重建 innerHTML 后 click 冒泡误判"点外面")
+- Web UI 镜像选择器 popup 排版 (display: block 覆盖 flex 导致列纵向堆叠)
+- Web UI 选择 GPU 型号后不自动刷新市场 (filter change 没 handler)
+
+### 实地验证 + 测试
+- **真账号 E2E** 跑通: confirm-create 真下单 (¥0.52/h TITAN Xp), clone + 100G 数据盘真下单, 全程零卡死
+- **240/240 单元测试通过 + ruff 干净**, 含 server 路由 38 个 + auto chain 18 个 + 镜像/分阶段检测/cancel/远程文件等
+
+### Roadmap (v0.6+)
+- Web UI token auth + CSRF 防护
+- `--json` 输出模式 (CC/Codex 解析友好)
+- `kuake status` 命令外部查询
+- `kuake auto --fail-rollback` 失败时自动 stop 实例
 - Multi-profile native support (currently via `KUAKE_HOME`)
 - Quark cloud delete endpoint (cleanup uploaded smoke / push files)
 - True parallel multipart upload (compute incremental `x-oss-hash-ctx`)
 - Resume-on-failure for uploads (persist `upload_id` + `etags`)
 - 阿里云盘 (Aliyun pan) 作为 Quark 之外的备选上传后端
-- AutoDL 深挖: 实例克隆 API 直查 / 磁盘扩容 API / 镜像列表 / 优惠券应用
 - PyPI publishing automation via GitHub Actions
 
 ---

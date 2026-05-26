@@ -5,7 +5,7 @@
 [![Tests](https://github.com/PYgdMIE/kuake-pipe/actions/workflows/test.yml/badge.svg)](https://github.com/PYgdMIE/kuake-pipe/actions/workflows/test.yml)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4%2B-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue)](CHANGELOG.md)
 
 **支持平台**: Windows · macOS · **Linux**(v0.4 起,不再依赖夸克 PC 客户端)
 
