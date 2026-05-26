@@ -46,21 +46,22 @@ def test_smoke_test_upload_fails_returns_false():
 
 
 def test_smoke_test_cleans_up_temp_file(tmp_path):
-    """临时上传文件必须删 (即使上传失败)"""
+    """临时上传文件必须删 (即使上传失败) — 跨平台 (用 tempfile.gettempdir)"""
+    import os
+    import tempfile
+    tmpdir = tempfile.gettempdir()
+    before = set(f for f in os.listdir(tmpdir) if f.startswith("kuake_smoke_"))
+
     fake_uploader = MagicMock()
     fake_uploader.resolve_or_create_folder.return_value = "f"
     fake_uploader.upload.side_effect = QuarkUploadError("oops")
     with patch("kuake.browser.smoke_test.QuarkUploader",
                return_value=fake_uploader):
         run_smoke_test(cookie="ck=v", cloud_backup_path="/test")
-    # 找一下 /tmp 下是不是有遗留的 kuake_smoke_ 文件
-    # 注:NamedTemporaryFile 用 tempfile.gettempdir(),默认 /tmp
-    import os
-    leftover = [f for f in os.listdir("/tmp") if f.startswith("kuake_smoke_")]
-    # 这里测的是: 不会有这次测试写入的 (不能确保 100% 干净因为 mock 不知道具体文件名)
-    # 实际是 finally clause 兜底删除
-    # 测试关键:run_smoke_test 不应该抛异常
-    assert True  # 主要看上面不抛
+
+    after = set(f for f in os.listdir(tmpdir) if f.startswith("kuake_smoke_"))
+    # finally clause 应该已经清掉本次写的临时文件 — after 不应该比 before 多
+    assert after <= before, f"temp files leaked: {after - before}"
 
 
 def test_smoke_test_uses_random_content(tmp_path):
